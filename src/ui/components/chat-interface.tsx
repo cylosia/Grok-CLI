@@ -9,9 +9,18 @@ interface ChatInterfaceProps {
   initialMessage?: string;
 }
 
+interface ConfirmationOptions {
+  operation: string;
+  filename: string | undefined;
+  onConfirm: (dontAskAgain?: boolean) => void;
+  onReject: (feedback?: string) => void;
+  showVSCodeOpen?: boolean;
+  content?: string;
+}
+
 const ChatInterface = ({ agent, initialMessage }: ChatInterfaceProps) => {
   const [chatHistory, setChatHistory] = useState<ChatEntry[]>([]);
-  const [confirmationOptions, setConfirmationOptions] = useState<any>(null);
+  const [confirmationOptions, setConfirmationOptions] = useState<ConfirmationOptions | null>(null);
 
   return (
     <>

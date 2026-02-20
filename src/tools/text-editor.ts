@@ -333,6 +333,36 @@ export class TextEditorTool {
       const fileContent = await fs.readFile(resolvedPath, "utf-8");
       const lines = fileContent.split("\n");
 
+      if (insertLine < 1 || insertLine > lines.length + 1) {
+        return {
+          success: false,
+          error: `Invalid insert line: ${insertLine}. Must be between 1 and ${lines.length + 1}.`,
+        };
+      }
+
+      const sessionFlags = this.confirmationService.getSessionFlags();
+      if (!sessionFlags.fileOperations && !sessionFlags.allOperations) {
+        const previewLines = [...lines];
+        previewLines.splice(insertLine - 1, 0, content);
+        const diffContent = this.generateDiff(lines, previewLines, filePath);
+        const confirmationResult = await this.confirmationService.requestConfirmation(
+          {
+            operation: `Insert content at line ${insertLine}`,
+            filename: filePath,
+            showVSCodeOpen: false,
+            content: diffContent,
+          },
+          "file"
+        );
+
+        if (!confirmationResult.confirmed) {
+          return {
+            success: false,
+            error: confirmationResult.feedback || "Insert cancelled by user",
+          };
+        }
+      }
+
       lines.splice(insertLine - 1, 0, content);
       const newContent = lines.join("\n");
 

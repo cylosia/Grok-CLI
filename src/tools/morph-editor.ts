@@ -9,6 +9,14 @@ export class MorphEditorTool {
   private morphApiKey: string;
   private morphBaseUrl: string = "https://api.morphllm.com/v1";
   private workspaceRoot = process.cwd();
+  private static readonly SENSITIVE_PATTERNS = [
+    /(?:^|\/)\.env(?:\.|$)/i,
+    /(?:^|\/)id_rsa(?:\.pub)?$/i,
+    /(?:^|\/)id_ed25519(?:\.pub)?$/i,
+    /(?:^|\/)secrets?\b/i,
+    /(?:^|\/)credentials?\b/i,
+    /(?:^|\/)\.ssh\//i,
+  ];
 
   constructor(apiKey?: string) {
     this.morphApiKey = apiKey || process.env.MORPH_API_KEY || "";
@@ -64,6 +72,12 @@ export class MorphEditorTool {
 
       // Read the initial code
       const initialCode = await fs.readFile(resolvedPath, "utf-8");
+      if (this.containsSensitiveMaterial(targetFile, initialCode)) {
+        return {
+          success: false,
+          error: "Refusing to send potentially sensitive file content to external API",
+        };
+      }
 
       // Check user confirmation before proceeding
       const sessionFlags = this.confirmationService.getSessionFlags();
@@ -107,6 +121,18 @@ export class MorphEditorTool {
         error: `Error editing ${targetFile} with Morph: ${error.message}`,
       };
     }
+  }
+
+  private containsSensitiveMaterial(filePath: string, content: string): boolean {
+    if (MorphEditorTool.SENSITIVE_PATTERNS.some((pattern) => pattern.test(filePath))) {
+      return true;
+    }
+
+    const secretLikePatterns = [
+      /BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY/i,
+      /(?:api[_-]?key|token|password|secret)\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{12,}/i,
+    ];
+    return secretLikePatterns.some((pattern) => pattern.test(content));
   }
 
   private async callMorphApply(

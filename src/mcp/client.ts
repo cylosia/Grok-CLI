@@ -99,8 +99,8 @@ export class MCPManager {
     for (const server of config.servers) {
       try {
         await this.addServer(server);
-      } catch {
-        // Do not fail full initialization for a single bad server.
+      } catch (error) {
+        console.warn(`Failed to initialize MCP server "${server.name}": ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     this.initialized = true;

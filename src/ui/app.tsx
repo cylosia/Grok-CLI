@@ -1,14 +1,12 @@
 import React from "react";
 import { CommandPalette } from "./components/command-palette.js";
 import { AgentSupervisor } from "../agent/supervisor.js";
+import { loadRuntimeConfig } from "../utils/runtime-config.js";
 
-const apiKey = process.env.GROK_API_KEY;
-if (!apiKey) {
-  throw new Error("GROK_API_KEY is required");
-}
+const runtimeConfig = loadRuntimeConfig();
 
 const App = () => {
-  const supervisor = new AgentSupervisor(apiKey);
+  const supervisor = new AgentSupervisor(runtimeConfig.grokApiKey);
 
   return <CommandPalette supervisor={supervisor} onClose={() => {}} />;
 };

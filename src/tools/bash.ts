@@ -5,12 +5,16 @@ import { ToolResult } from '../types/index.js';
 import { ConfirmationService } from '../utils/confirmation-service.js';
 
 const ALLOWED_COMMANDS = new Set([
-  'git', 'ls', 'pwd', 'cat', 'mkdir', 'touch', 'echo', 'grep', 'find', 'cp', 'mv', 'rm', 'rg', 'npm', 'node'
+  'git', 'ls', 'pwd', 'cat', 'mkdir', 'touch', 'echo', 'grep', 'find', 'rg'
 ]);
 
+const BLOCKED_COMMANDS = new Set(['rm', 'mv', 'cp', 'node', 'npm']);
+
 const UNSAFE_SHELL_METACHARS = /[;&|><`\n\r]/;
+const MAX_OUTPUT_BYTES = 1_000_000;
 
 export class BashTool {
+  private workspaceRoot: string = process.cwd();
   private currentDirectory: string = process.cwd();
   private confirmationService = ConfirmationService.getInstance();
 
@@ -21,6 +25,11 @@ export class BashTool {
     }
 
     const [cmd, ...args] = tokens;
+
+    if (BLOCKED_COMMANDS.has(cmd)) {
+      return { success: false, error: `Command is blocked by policy: ${cmd}` };
+    }
+
     if (cmd === 'cd') {
       const target = args[0] ?? '.';
       return this.changeDirectory(target);
@@ -44,6 +53,14 @@ export class BashTool {
     confirmationLabel?: string
   ): Promise<ToolResult> {
     try {
+      if (BLOCKED_COMMANDS.has(command)) {
+        return { success: false, error: `Command is blocked by policy: ${command}` };
+      }
+
+      if (!ALLOWED_COMMANDS.has(command)) {
+        return { success: false, error: `Command is not allowed: ${command}` };
+      }
+
       const sessionFlags = this.confirmationService.getSessionFlags();
       if (!sessionFlags.bashCommands && !sessionFlags.allOperations) {
         const confirmationResult = await this.confirmationService.requestConfirmation(
@@ -87,7 +104,22 @@ export class BashTool {
 
       let stdout = '';
       let stderr = '';
+      let truncated = false;
       let timedOut = false;
+
+      const appendChunk = (current: string, data: unknown): string => {
+        if (truncated) return current;
+        const chunk = String(data);
+        const next = current + chunk;
+        if (next.length <= MAX_OUTPUT_BYTES) {
+          return next;
+        }
+
+        truncated = true;
+        const allowedBytes = Math.max(MAX_OUTPUT_BYTES - current.length, 0);
+        const clipped = allowedBytes > 0 ? chunk.slice(0, allowedBytes) : '';
+        return `${current}${clipped}\n[output truncated after ${MAX_OUTPUT_BYTES} bytes]`;
+      };
 
       const timer = setTimeout(() => {
         timedOut = true;
@@ -95,11 +127,11 @@ export class BashTool {
       }, timeout);
 
       child.stdout.on('data', (data) => {
-        stdout += String(data);
+        stdout = appendChunk(stdout, data);
       });
 
       child.stderr.on('data', (data) => {
-        stderr += String(data);
+        stderr = appendChunk(stderr, data);
       });
 
       child.on('error', (error) => {
@@ -121,6 +153,16 @@ export class BashTool {
 
   private async changeDirectory(newDir: string): Promise<ToolResult> {
     const target = path.resolve(this.currentDirectory, newDir);
+    const rootPrefix = this.workspaceRoot.endsWith('/')
+      ? this.workspaceRoot
+      : `${this.workspaceRoot}/`;
+    if (target !== this.workspaceRoot && !target.startsWith(rootPrefix)) {
+      return {
+        success: false,
+        error: `Cannot change directory outside workspace root: ${newDir}`,
+      };
+    }
+
     const exists = await fs.pathExists(target);
     if (!exists) {
       return { success: false, error: `Cannot change directory: path does not exist: ${newDir}` };

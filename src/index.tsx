@@ -2,6 +2,7 @@ import React from "react";
 import { render } from "ink";
 import App from "./ui/app.js";
 import { GrokAgent } from "./agent/grok-agent.js";
+import { loadRuntimeConfig } from "./utils/runtime-config.js";
 
 (async () => {
   const args = process.argv.slice(2);
@@ -37,11 +38,8 @@ Full TUI launches automatically when TTY is detected.
     console.log("🖥️  CLI Mode (MINGW64 compatible)");
     console.log(`Prompt: ${prompt}`);
 
-    const apiKey = process.env.GROK_API_KEY;
-    if (!apiKey) {
-      throw new Error("GROK_API_KEY is required");
-    }
-    const agent = new GrokAgent(apiKey);
+    const config = loadRuntimeConfig();
+    const agent = new GrokAgent(config.grokApiKey, config.grokBaseUrl);
     try {
       const result = await agent.processUserMessage(prompt);
       console.log("\nResult:");

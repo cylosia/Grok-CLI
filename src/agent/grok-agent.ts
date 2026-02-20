@@ -48,8 +48,11 @@ export class GrokAgent extends EventEmitter {
   private tokenCounter: TokenCounter;
   private abortController: AbortController | null = null;
   private mcpInitialized = false;
+  private mcpInitError: string | null = null;
   private maxToolRounds: number;
   private supervisor: AgentSupervisor | null;
+  private processingQueue: Promise<void> = Promise.resolve();
+  private isProcessing = false;
 
   constructor(
     apiKey: string,
@@ -100,12 +103,34 @@ export class GrokAgent extends EventEmitter {
       const manager = getMCPManager();
       await manager.ensureServersInitialized();
       this.mcpInitialized = true;
-    } catch {
+      this.mcpInitError = null;
+    } catch (error) {
       this.mcpInitialized = false;
+      this.mcpInitError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  private async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.isProcessing) {
+      throw new Error("Agent is already processing another request");
+    }
+    const previous = this.processingQueue;
+    let release: () => void = () => {};
+    this.processingQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    this.isProcessing = true;
+    try {
+      return await operation();
+    } finally {
+      this.isProcessing = false;
+      release();
     }
   }
 
   async processUserMessage(message: string): Promise<ChatEntry[]> {
+    return this.runExclusive(async () => {
     const entries: ChatEntry[] = [];
     const userEntry: ChatEntry = {
       type: "user",
@@ -184,9 +209,14 @@ export class GrokAgent extends EventEmitter {
     this.chatHistory.push(failEntry);
     entries.push(failEntry);
     return entries;
+    });
   }
 
   async *processUserMessageStream(message: string): AsyncGenerator<StreamingChunk> {
+    if (this.isProcessing) {
+      throw new Error("Agent is already processing another request");
+    }
+    this.isProcessing = true;
     const userEntry: ChatEntry = {
       type: "user",
       content: message,
@@ -202,29 +232,33 @@ export class GrokAgent extends EventEmitter {
     const tools: GrokTool[] = await getAllGrokTools();
     const assistantParts: string[] = [];
 
-    for await (const chunk of this.grokClient.chatStream(this.messages, {
-      tools,
-      signal: this.abortController.signal,
-    })) {
-      if (chunk.content) {
-        assistantParts.push(chunk.content);
-        yield { type: "content", content: chunk.content };
+    try {
+      for await (const chunk of this.grokClient.chatStream(this.messages, {
+        tools,
+        signal: this.abortController.signal,
+      })) {
+        if (chunk.content) {
+          assistantParts.push(chunk.content);
+          yield { type: "content", content: chunk.content };
+        }
+
+        if (chunk.toolCalls && chunk.toolCalls.length > 0) {
+          yield { type: "tool_calls", toolCalls: chunk.toolCalls };
+        }
       }
 
-      if (chunk.toolCalls && chunk.toolCalls.length > 0) {
-        yield { type: "tool_calls", toolCalls: chunk.toolCalls };
-      }
+      const assistantContent = assistantParts.join("");
+      this.messages.push({ role: "assistant", content: assistantContent });
+      this.chatHistory.push({
+        type: "assistant",
+        content: assistantContent,
+        timestamp: new Date(),
+      });
+
+      yield { type: "done" };
+    } finally {
+      this.isProcessing = false;
     }
-
-    const assistantContent = assistantParts.join("");
-    this.messages.push({ role: "assistant", content: assistantContent });
-    this.chatHistory.push({
-      type: "assistant",
-      content: assistantContent,
-      timestamp: new Date(),
-    });
-
-    yield { type: "done" };
   }
 
   private async executeTool(toolCall: GrokToolCall): Promise<ToolResult> {
@@ -323,6 +357,13 @@ export class GrokAgent extends EventEmitter {
       this.abortController.abort();
       this.abortController = null;
     }
+  }
+
+  getMCPInitializationStatus(): { initialized: boolean; error?: string } {
+    return {
+      initialized: this.mcpInitialized,
+      error: this.mcpInitError || undefined,
+    };
   }
 
   async executeBashCommand(command: string): Promise<ToolResult> {
