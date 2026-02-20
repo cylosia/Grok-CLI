@@ -191,7 +191,6 @@ export class SearchTool {
       // Respect gitignore and common ignore patterns
       args.push(
         "--no-require-git",
-        "--follow",
         "--glob",
         "!.git/**",
         "--glob",

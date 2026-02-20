@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import { GrokAgent } from "../../agent/grok-agent.js";
+import { GrokClient } from "../../grok/client.js";
 import { getSettingsManager } from "../../utils/settings-manager.js";
 
 interface ApiKeyInputProps {
@@ -49,11 +50,13 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
     setIsSubmitting(true);
     try {
       const apiKey = input.trim();
+      const probeClient = new GrokClient(apiKey);
+      await probeClient.listModels();
       const agent = new GrokAgent(apiKey);
-      
+
       // Set environment variable for current process
       process.env.GROK_API_KEY = apiKey;
-      
+
       // Save to user settings
       try {
         const manager = getSettingsManager();
@@ -65,8 +68,8 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
       }
       
       onApiKeySet(agent);
-    } catch (error: any) {
-      setError("Invalid API key format");
+    } catch (error) {
+      setError(error instanceof Error ? `API key validation failed: ${error.message}` : "API key validation failed");
       setIsSubmitting(false);
     }
   };

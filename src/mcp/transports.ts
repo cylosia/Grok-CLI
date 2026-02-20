@@ -32,9 +32,18 @@ export class StdioTransport implements MCPTransport {
   }
 
   async connect(): Promise<Transport> {
-    // Create transport with environment variables to suppress verbose output
-    const env = { 
-      ...process.env, 
+    const allowlistedEnvKeys = ["PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "LC_ALL"];
+    const baseEnv = allowlistedEnvKeys.reduce<Record<string, string>>((acc, key) => {
+      const value = process.env[key];
+      if (typeof value === "string") {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+
+    // Create transport with sanitized environment variables to suppress verbose output
+    const env = {
+      ...baseEnv,
       ...this.config.env,
       // Try to suppress verbose output from mcp-remote
       MCP_REMOTE_QUIET: '1',
@@ -95,8 +104,7 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
       await this.client.get('/health');
       this.connected = true;
     } catch (error) {
-      // If health endpoint doesn't exist, try a basic request
-      this.connected = true;
+      this.connected = false;
       this.emit('transport-warning', {
         type: 'http-health-check-failed',
         error: error instanceof Error ? error.message : String(error),

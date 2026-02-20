@@ -58,7 +58,8 @@ export class SettingsManager {
       const content = fs.readFileSync(this.userSettingsPath, "utf-8");
       const settings = JSON.parse(content);
       return { ...DEFAULT_USER_SETTINGS, ...settings };
-    } catch {
+    } catch (error) {
+      console.warn(`Failed to load user settings: ${error instanceof Error ? error.message : String(error)}`);
       return DEFAULT_USER_SETTINGS;
     }
   }
@@ -102,7 +103,8 @@ export class SettingsManager {
       }
       const content = fs.readFileSync(this.projectSettingsPath, "utf-8");
       return { ...DEFAULT_PROJECT_SETTINGS, ...JSON.parse(content) };
-    } catch {
+    } catch (error) {
+      console.warn(`Failed to load project settings: ${error instanceof Error ? error.message : String(error)}`);
       return DEFAULT_PROJECT_SETTINGS;
     }
   }

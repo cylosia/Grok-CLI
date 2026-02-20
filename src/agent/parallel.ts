@@ -16,27 +16,43 @@ export class ParallelExecutor {
     this.confirmationService = ConfirmationService.getInstance();
   }
 
-  async executeParallel(tasks: ParallelTask[]): Promise<TaskResult[]> {
-    const results = await Promise.all(
-      tasks.map(async (task) => {
-        const confirmation = await this.confirmationService.requestConfirmation(
-          {
-            operation: `Execute ${task.type} task`,
-            filename: task.id,
-            content: task.description || JSON.stringify(task.payload),
-            showVSCodeOpen: false,
-          },
-          "file"
-        );
+  async executeParallel(tasks: ParallelTask[], concurrency = 3): Promise<TaskResult[]> {
+    if (tasks.length === 0) {
+      return [];
+    }
 
-        if (!confirmation.confirmed) {
-          return { success: false, error: confirmation.feedback || "User rejected" };
-        }
+    const results: TaskResult[] = new Array(tasks.length);
+    let cursor = 0;
 
-        return this.agent.delegate({ ...task, priority: 0 });
-      })
-    );
+    const runNext = async (): Promise<void> => {
+      const index = cursor;
+      cursor += 1;
+      if (index >= tasks.length) {
+        return;
+      }
 
+      const task = tasks[index];
+      const confirmation = await this.confirmationService.requestConfirmation(
+        {
+          operation: `Execute ${task.type} task`,
+          filename: task.id,
+          content: task.description || JSON.stringify(task.payload),
+          showVSCodeOpen: false,
+        },
+        "file"
+      );
+
+      if (!confirmation.confirmed) {
+        results[index] = { success: false, error: confirmation.feedback || "User rejected" };
+      } else {
+        results[index] = await this.agent.delegate({ ...task, priority: 0 });
+      }
+
+      await runNext();
+    };
+
+    const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => runNext());
+    await Promise.all(workers);
     return results;
   }
 }

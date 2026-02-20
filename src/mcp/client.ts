@@ -40,31 +40,36 @@ export class MCPManager {
     }
 
     const transport = createTransport(config.transport);
-    const sdkTransport = await transport.connect();
     const client = new Client(
       { name: "grok-cli", version: "2.0.0" },
       { capabilities: {} }
     );
 
-    await client.connect(sdkTransport);
+    try {
+      const sdkTransport = await transport.connect();
+      await client.connect(sdkTransport);
 
-    const listed = await client.listTools();
-    const tools: MCPTool[] = listed.tools.map((tool) => ({
-      name: `mcp__${config.name}__${tool.name}`,
-      description: tool.description || "MCP tool",
-      inputSchema: (tool.inputSchema as Record<string, unknown> | undefined) || {
-        type: "object",
-        properties: {},
-      },
-      serverName: config.name,
-    }));
+      const listed = await client.listTools();
+      const tools: MCPTool[] = listed.tools.map((tool) => ({
+        name: `mcp__${config.name}__${tool.name}`,
+        description: tool.description || "MCP tool",
+        inputSchema: (tool.inputSchema as Record<string, unknown> | undefined) || {
+          type: "object",
+          properties: {},
+        },
+        serverName: config.name,
+      }));
 
-    this.servers.set(config.name, {
-      config,
-      transport,
-      client,
-      tools,
-    });
+      this.servers.set(config.name, {
+        config,
+        transport,
+        client,
+        tools,
+      });
+    } catch (error) {
+      await Promise.allSettled([client.close(), transport.disconnect()]);
+      throw error;
+    }
   }
 
   async removeServer(name: string): Promise<void> {

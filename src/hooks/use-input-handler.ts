@@ -562,9 +562,6 @@ Respond with ONLY the commit message, no additional text.`;
       "echo",
       "grep",
       "find",
-      "cp",
-      "mv",
-      "rm",
     ];
     const firstWord = trimmedInput.split(" ")[0];
 
