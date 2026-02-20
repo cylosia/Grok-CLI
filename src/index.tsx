@@ -32,6 +32,19 @@ Full TUI launches automatically when TTY is detected.
     process.exit(0);
   }
 
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+    process.exit(0);
+  };
+
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+
   // CLI Mode (MINGW64 / non-TTY safe)
   if (!process.stdout.isTTY || args.includes('--cli')) {
     const prompt = args.filter(a => !a.startsWith('--')).join(' ') || "Hello from Grok CLI";

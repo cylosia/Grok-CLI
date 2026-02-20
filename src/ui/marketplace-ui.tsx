@@ -2,8 +2,14 @@ import React, { useState } from "react";
 import { Text, Box } from "ink";
 import { MCPMarketplace } from "../mcp/marketplace.js";
 
+interface MarketplaceResult {
+  name: string;
+  description: string;
+  stars: number;
+}
+
 export const MarketplaceUI = () => {
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<MarketplaceResult[]>([]);
 
   const handleSearch = async (query: string) => {
     const marketplace = new MCPMarketplace();

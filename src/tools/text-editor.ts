@@ -13,7 +13,7 @@ export class TextEditorTool {
     viewRange?: [number, number]
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = this.resolveSafePath(filePath);
+      const resolvedPath = await this.resolveSafePath(filePath);
 
       if (await fs.pathExists(resolvedPath)) {
         const stats = await fs.stat(resolvedPath);
@@ -75,7 +75,7 @@ export class TextEditorTool {
     replaceAll: boolean = false
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = this.resolveSafePath(filePath);
+      const resolvedPath = await this.resolveSafePath(filePath);
 
       if (!(await fs.pathExists(resolvedPath))) {
         return {
@@ -142,7 +142,7 @@ export class TextEditorTool {
 
       this.editHistory.push({
         command: "str_replace",
-        path: filePath,
+        path: resolvedPath,
         old_str: oldStr,
         new_str: newStr,
       });
@@ -165,7 +165,7 @@ export class TextEditorTool {
 
   async create(filePath: string, content: string): Promise<ToolResult> {
     try {
-      const resolvedPath = this.resolveSafePath(filePath);
+      const resolvedPath = await this.resolveSafePath(filePath);
 
       // Check if user has already accepted file operations for this session
       const sessionFlags = this.confirmationService.getSessionFlags();
@@ -206,7 +206,7 @@ export class TextEditorTool {
 
       this.editHistory.push({
         command: "create",
-        path: filePath,
+        path: resolvedPath,
         content,
       });
 
@@ -234,7 +234,7 @@ export class TextEditorTool {
     newContent: string
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = this.resolveSafePath(filePath);
+      const resolvedPath = await this.resolveSafePath(filePath);
 
       if (!(await fs.pathExists(resolvedPath))) {
         return {
@@ -295,7 +295,7 @@ export class TextEditorTool {
 
       this.editHistory.push({
         command: "str_replace",
-        path: filePath,
+        path: resolvedPath,
         old_str: `lines ${startLine}-${endLine}`,
         new_str: newContent,
       });
@@ -321,7 +321,7 @@ export class TextEditorTool {
     content: string
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = this.resolveSafePath(filePath);
+      const resolvedPath = await this.resolveSafePath(filePath);
 
       if (!(await fs.pathExists(resolvedPath))) {
         return {
@@ -370,7 +370,7 @@ export class TextEditorTool {
 
       this.editHistory.push({
         command: "insert",
-        path: filePath,
+        path: resolvedPath,
         insert_line: insertLine,
         content,
       });
@@ -395,33 +395,42 @@ export class TextEditorTool {
       };
     }
 
-    const lastEdit = this.editHistory.pop()!;
+    const lastEdit = this.editHistory.pop();
+    if (!lastEdit) {
+      return {
+        success: false,
+        error: "No edits to undo",
+      };
+    }
 
     try {
       switch (lastEdit.command) {
         case "str_replace":
           if (lastEdit.path && lastEdit.old_str && lastEdit.new_str) {
-            const content = await fs.readFile(lastEdit.path, "utf-8");
+            const safePath = await this.resolveSafePath(lastEdit.path);
+            const content = await fs.readFile(safePath, "utf-8");
             const revertedContent = content.replace(
               lastEdit.new_str,
               lastEdit.old_str
             );
-            await fs.writeFile(lastEdit.path, revertedContent, "utf-8");
+            await fs.writeFile(safePath, revertedContent, "utf-8");
           }
           break;
 
         case "create":
           if (lastEdit.path) {
-            await fs.remove(lastEdit.path);
+            const safePath = await this.resolveSafePath(lastEdit.path);
+            await fs.remove(safePath);
           }
           break;
 
         case "insert":
           if (lastEdit.path && lastEdit.insert_line) {
-            const content = await fs.readFile(lastEdit.path, "utf-8");
+            const safePath = await this.resolveSafePath(lastEdit.path);
+            const content = await fs.readFile(safePath, "utf-8");
             const lines = content.split("\n");
             lines.splice(lastEdit.insert_line - 1, 1);
-            await fs.writeFile(lastEdit.path, lines.join("\n"), "utf-8");
+            await fs.writeFile(safePath, lines.join("\n"), "utf-8");
           }
           break;
       }
@@ -518,6 +527,10 @@ export class TextEditorTool {
   private computeLCS(oldLines: string[], newLines: string[]): number[][] {
     const m = oldLines.length;
     const n = newLines.length;
+
+    if (m * n > 250_000) {
+      return [];
+    }
     const dp: number[][] = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
 
     // Build LCS length table
@@ -611,7 +624,9 @@ export class TextEditorTool {
 
     // Use LCS-based diff algorithm to find actual changes
     const lcs = this.computeLCS(oldLines, newLines);
-    const changes = this.extractChanges(oldLines, newLines, lcs);
+    const changes = lcs.length === 0
+      ? [{ oldStart: 0, oldEnd: oldLines.length, newStart: 0, newEnd: newLines.length }]
+      : this.extractChanges(oldLines, newLines, lcs);
     
     const hunks: Array<{
       oldStart: number;
@@ -729,12 +744,28 @@ export class TextEditorTool {
   }
 
 
-  private resolveSafePath(filePath: string): string {
-    const resolvedPath = path.resolve(this.workspaceRoot, filePath);
-    const rootPrefix = this.workspaceRoot.endsWith("/") ? this.workspaceRoot : `${this.workspaceRoot}/`;
+  private async resolveSafePath(filePath: string): Promise<string> {
+    const workspaceRootReal = await fs.realpath(this.workspaceRoot);
+    const resolvedPath = path.resolve(workspaceRootReal, filePath);
+    const rootPrefix = workspaceRootReal.endsWith("/") ? workspaceRootReal : `${workspaceRootReal}/`;
 
-    if (resolvedPath !== this.workspaceRoot && !resolvedPath.startsWith(rootPrefix)) {
+    if (resolvedPath !== workspaceRootReal && !resolvedPath.startsWith(rootPrefix)) {
       throw new Error(`Path escapes workspace root: ${filePath}`);
+    }
+
+    const existingTarget = await fs.pathExists(resolvedPath);
+    if (existingTarget) {
+      const targetReal = await fs.realpath(resolvedPath);
+      if (targetReal !== workspaceRootReal && !targetReal.startsWith(rootPrefix)) {
+        throw new Error(`Path resolves outside workspace root: ${filePath}`);
+      }
+      return targetReal;
+    }
+
+    const parentDir = path.dirname(resolvedPath);
+    const parentReal = await fs.realpath(parentDir);
+    if (parentReal !== workspaceRootReal && !parentReal.startsWith(rootPrefix)) {
+      throw new Error(`Path parent resolves outside workspace root: ${filePath}`);
     }
 
     return resolvedPath;
