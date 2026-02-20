@@ -1,5 +1,12 @@
 import * as fsSync from "fs";
-const fs: any = (fsSync as any).promises;
+
+type FsPromisesLike = {
+  mkdir(path: string, options?: { recursive?: boolean; mode?: number }): Promise<void>;
+  writeFile(path: string, data: string, options?: { encoding?: string; mode?: number }): Promise<void>;
+  rename(oldPath: string, newPath: string): Promise<void>;
+};
+
+const fs = (fsSync as unknown as { promises: FsPromisesLike }).promises;
 import * as path from "path";
 import * as os from "os";
 import { logger } from "./logger.js";
@@ -36,6 +43,42 @@ const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   model: "grok-420",
 };
 
+
+function sanitizeUserSettings(value: unknown): Partial<UserSettings> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+  const sanitized: Partial<UserSettings> = {};
+
+  if (typeof record.apiKey === "string") sanitized.apiKey = record.apiKey;
+  if (typeof record.baseURL === "string") sanitized.baseURL = record.baseURL;
+  if (typeof record.defaultModel === "string") sanitized.defaultModel = record.defaultModel;
+  if (Array.isArray(record.models) && record.models.every((m) => typeof m === "string")) sanitized.models = record.models;
+  if (typeof record.autoDiscover === "boolean") sanitized.autoDiscover = record.autoDiscover;
+  if (typeof record.settingsVersion === "number") sanitized.settingsVersion = record.settingsVersion;
+
+  return sanitized;
+}
+
+function sanitizeProjectSettings(value: unknown): Partial<ProjectSettings> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+  const sanitized: Partial<ProjectSettings> = {};
+  if (typeof record.model === "string") sanitized.model = record.model;
+  if (record.mcpServers && typeof record.mcpServers === "object") sanitized.mcpServers = record.mcpServers as Record<string, unknown>;
+  if (record.trustedMcpServers && typeof record.trustedMcpServers === "object") {
+    sanitized.trustedMcpServers = Object.fromEntries(
+      Object.entries(record.trustedMcpServers as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    );
+  }
+  return sanitized;
+}
+
 export class SettingsManager {
   private static instance: SettingsManager;
   private userSettingsPath: string;
@@ -55,7 +98,7 @@ export class SettingsManager {
     return SettingsManager.instance;
   }
 
-  private readJsonFile<T extends object>(filePath: string): T | null {
+  private readJsonFile<T>(filePath: string): T | null {
     if (!fsSync.existsSync(filePath)) {
       return null;
     }
@@ -89,13 +132,15 @@ export class SettingsManager {
       return { ...this.userSettingsCache };
     }
     try {
-      const settings = this.readJsonFile<Partial<UserSettings>>(this.userSettingsPath);
-      if (!settings) {
+      const rawSettings = this.readJsonFile<unknown>(this.userSettingsPath);
+      if (!rawSettings) {
         const mergedDefaults = { ...DEFAULT_USER_SETTINGS };
         this.enqueueWrite(this.userSettingsPath, mergedDefaults);
         this.userSettingsCache = mergedDefaults;
         return mergedDefaults;
       }
+
+      const settings = sanitizeUserSettings(rawSettings);
 
       if (typeof settings.apiKey === "string" && settings.apiKey.length > 0) {
         this.sessionApiKey = settings.apiKey;
@@ -121,8 +166,8 @@ export class SettingsManager {
   }
 
   public saveUserSettings(settings: Partial<UserSettings>): void {
-    const current = this.readJsonFile<Partial<UserSettings>>(this.userSettingsPath) || DEFAULT_USER_SETTINGS;
-    const merged = { ...DEFAULT_USER_SETTINGS, ...current, ...settings };
+    const current = sanitizeUserSettings(this.readJsonFile<unknown>(this.userSettingsPath));
+    const merged = { ...DEFAULT_USER_SETTINGS, ...current, ...sanitizeUserSettings(settings) };
     if (typeof merged.apiKey === "string") {
       this.sessionApiKey = merged.apiKey;
       delete merged.apiKey;
@@ -141,7 +186,7 @@ export class SettingsManager {
   }
 
   public getAvailableModels(): string[] {
-    return this.loadUserSettings().models || DEFAULT_USER_SETTINGS.models!;
+    return this.loadUserSettings().models || DEFAULT_USER_SETTINGS.models || [];
   }
 
   public getApiKey(): string | undefined {
@@ -149,13 +194,13 @@ export class SettingsManager {
   }
 
   public getBaseURL(): string {
-    return process.env.GROK_BASE_URL || this.loadUserSettings().baseURL || DEFAULT_USER_SETTINGS.baseURL!;
+    return process.env.GROK_BASE_URL || this.loadUserSettings().baseURL || DEFAULT_USER_SETTINGS.baseURL || "https://api.x.ai/v1";
   }
 
   public updateUserSetting<K extends keyof UserSettings>(key: K, value: UserSettings[K]): void {
     if (key === "apiKey" && typeof value === "string") {
       this.sessionApiKey = value;
-      const current = this.readJsonFile<Partial<UserSettings>>(this.userSettingsPath) || DEFAULT_USER_SETTINGS;
+      const current = sanitizeUserSettings(this.readJsonFile<unknown>(this.userSettingsPath));
       if (typeof current.apiKey === "string") {
         delete current.apiKey;
         this.enqueueWrite(this.userSettingsPath, current);
@@ -173,14 +218,15 @@ export class SettingsManager {
     }
 
     try {
-      const settings = this.readJsonFile<Partial<ProjectSettings>>(this.projectSettingsPath);
-      if (!settings) {
+      const rawSettings = this.readJsonFile<unknown>(this.projectSettingsPath);
+      if (!rawSettings) {
         const mergedDefaults = { ...DEFAULT_PROJECT_SETTINGS };
         this.enqueueWrite(this.projectSettingsPath, mergedDefaults);
         this.projectSettingsCache = mergedDefaults;
         return mergedDefaults;
       }
 
+      const settings = sanitizeProjectSettings(rawSettings);
       const merged = { ...DEFAULT_PROJECT_SETTINGS, ...settings };
       this.projectSettingsCache = merged;
       return merged;
@@ -195,8 +241,8 @@ export class SettingsManager {
   }
 
   public saveProjectSettings(settings: Partial<ProjectSettings>): void {
-    const current = this.readJsonFile<Partial<ProjectSettings>>(this.projectSettingsPath) || DEFAULT_PROJECT_SETTINGS;
-    const merged = { ...DEFAULT_PROJECT_SETTINGS, ...current, ...settings };
+    const current = sanitizeProjectSettings(this.readJsonFile<unknown>(this.projectSettingsPath));
+    const merged = { ...DEFAULT_PROJECT_SETTINGS, ...current, ...sanitizeProjectSettings(settings) };
     this.enqueueWrite(this.projectSettingsPath, merged);
     this.projectSettingsCache = merged;
   }

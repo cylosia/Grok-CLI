@@ -9,6 +9,12 @@ const ALLOWED_COMMANDS = new Set([
 ]);
 
 const BLOCKED_COMMANDS = new Set(['rm', 'mv', 'cp', 'node', 'npm']);
+const BLOCKED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
+  find: new Set(['-exec', '-execdir', '-ok', '-okdir']),
+  rg: new Set(['--pre', '--pre-glob', '--no-ignore-files', '--ignore-file']),
+  grep: new Set(['--include-from', '--exclude-from', '-f']),
+  git: new Set(['-c']),
+};
 
 const UNSAFE_SHELL_METACHARS = /[;&|><`\n\r]/;
 const MAX_OUTPUT_BYTES = 1_000_000;
@@ -69,6 +75,11 @@ export class BashTool {
       const argsValidation = await this.validateArgs(command, args);
       if (!argsValidation.success) {
         return argsValidation;
+      }
+
+      const commandSpecificValidation = this.validateCommandSpecificArgs(command, args);
+      if (!commandSpecificValidation.success) {
+        return commandSpecificValidation;
       }
 
       const sessionFlags = this.confirmationService.getSessionFlags();
@@ -219,6 +230,25 @@ export class BashTool {
 
       if (path.isAbsolute(arg) || arg.split('/').includes('..')) {
         return { success: false, error: `Path argument is not allowed outside workspace: ${arg}` };
+      }
+    }
+
+    return { success: true };
+  }
+
+  private validateCommandSpecificArgs(command: string, args: string[]): ToolResult {
+    const blocked = BLOCKED_FLAGS_BY_COMMAND[command];
+    if (!blocked) {
+      return { success: true };
+    }
+
+    for (const arg of args) {
+      const normalized = arg.split('=')[0];
+      if (blocked.has(normalized)) {
+        return {
+          success: false,
+          error: `Flag is blocked by policy for ${command}: ${normalized}`,
+        };
       }
     }
 

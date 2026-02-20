@@ -196,6 +196,7 @@ export class MCPManager {
         new Promise<never>((_, reject) => {
           timeoutHandle = setTimeout(() => {
             timedOut = true;
+            void this.teardownServer(serverName);
             reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
           }, MCPManager.TOOL_CALL_TIMEOUT_MS);
         }),

@@ -125,6 +125,7 @@ function parseToolCalls(toolCalls: unknown): GrokToolCall[] {
 }
 
 export class GrokClient {
+  private static readonly REQUEST_TIMEOUT_MS = 30_000;
   private client: OpenAI;
   private currentModel = "grok-420";
 
@@ -162,7 +163,7 @@ export class GrokClient {
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(typeof options.maxTokens === "number" ? { max_tokens: options.maxTokens } : {}),
         },
-        { signal: options.signal }
+        { signal: options.signal, timeout: GrokClient.REQUEST_TIMEOUT_MS }
       ),
       3,
       options.signal
@@ -200,7 +201,7 @@ export class GrokClient {
           ...(typeof options.maxTokens === "number" ? { max_tokens: options.maxTokens } : {}),
           stream: true,
         },
-        { signal: options.signal }
+        { signal: options.signal, timeout: GrokClient.REQUEST_TIMEOUT_MS }
       ),
       3,
       options.signal

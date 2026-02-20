@@ -27,6 +27,7 @@ export interface EditorCommand {
   insert_line?: number;
   view_range?: [number, number];
   replace_all?: boolean;
+  previous_content?: string;
 }
 
 export interface AgentState {
