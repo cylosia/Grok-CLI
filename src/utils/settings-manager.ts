@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { logger } from "./logger.js";
 
 const SETTINGS_VERSION = 4;
 
@@ -39,6 +40,8 @@ export class SettingsManager {
   private userSettingsPath: string;
   private projectSettingsPath: string;
   private sessionApiKey: string | undefined;
+  private userSettingsCache: UserSettings | null = null;
+  private projectSettingsCache: ProjectSettings | null = null;
 
   private constructor() {
     this.userSettingsPath = path.join(os.homedir(), ".grok", "user-settings.json");
@@ -85,13 +88,16 @@ export class SettingsManager {
     }
   }
 
-  // ==================== USER SETTINGS ====================
-  public loadUserSettings(): UserSettings {
+  public loadUserSettings(forceReload = false): UserSettings {
+    if (this.userSettingsCache && !forceReload) {
+      return { ...this.userSettingsCache };
+    }
     try {
       const settings = this.readJsonFile<Partial<UserSettings>>(this.userSettingsPath);
       if (!settings) {
         const mergedDefaults = { ...DEFAULT_USER_SETTINGS };
         this.writeJsonFile(this.userSettingsPath, mergedDefaults);
+        this.userSettingsCache = mergedDefaults;
         return mergedDefaults;
       }
 
@@ -99,14 +105,22 @@ export class SettingsManager {
         this.sessionApiKey = settings.apiKey;
         const { apiKey, ...sanitized } = settings;
         void apiKey;
-        this.writeJsonFile(this.userSettingsPath, { ...DEFAULT_USER_SETTINGS, ...sanitized });
-        return { ...DEFAULT_USER_SETTINGS, ...sanitized };
+        const merged = { ...DEFAULT_USER_SETTINGS, ...sanitized };
+        this.writeJsonFile(this.userSettingsPath, merged);
+        this.userSettingsCache = merged;
+        return merged;
       }
 
-      return { ...DEFAULT_USER_SETTINGS, ...settings };
+      const merged = { ...DEFAULT_USER_SETTINGS, ...settings };
+      this.userSettingsCache = merged;
+      return merged;
     } catch (error) {
-      console.warn(`Failed to load user settings: ${error instanceof Error ? error.message : String(error)}`);
-      return DEFAULT_USER_SETTINGS;
+      logger.warn("load-user-settings-failed", {
+        component: "settings-manager",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.userSettingsCache = { ...DEFAULT_USER_SETTINGS };
+      return { ...DEFAULT_USER_SETTINGS };
     }
   }
 
@@ -119,6 +133,7 @@ export class SettingsManager {
     }
 
     this.writeJsonFile(this.userSettingsPath, merged);
+    this.userSettingsCache = merged;
   }
 
   public getCurrentModel(): string {
@@ -148,6 +163,7 @@ export class SettingsManager {
       if (typeof current.apiKey === "string") {
         delete current.apiKey;
         this.writeJsonFile(this.userSettingsPath, current);
+        this.userSettingsCache = { ...DEFAULT_USER_SETTINGS, ...current };
       }
       return;
     }
@@ -155,26 +171,38 @@ export class SettingsManager {
     this.saveUserSettings({ [key]: value });
   }
 
-  // ==================== PROJECT SETTINGS ====================
-  public loadProjectSettings(): ProjectSettings {
+  public loadProjectSettings(forceReload = false): ProjectSettings {
+    if (this.projectSettingsCache && !forceReload) {
+      return { ...this.projectSettingsCache };
+    }
+
     try {
       const settings = this.readJsonFile<Partial<ProjectSettings>>(this.projectSettingsPath);
       if (!settings) {
         const mergedDefaults = { ...DEFAULT_PROJECT_SETTINGS };
         this.writeJsonFile(this.projectSettingsPath, mergedDefaults);
+        this.projectSettingsCache = mergedDefaults;
         return mergedDefaults;
       }
 
-      return { ...DEFAULT_PROJECT_SETTINGS, ...settings };
+      const merged = { ...DEFAULT_PROJECT_SETTINGS, ...settings };
+      this.projectSettingsCache = merged;
+      return merged;
     } catch (error) {
-      console.warn(`Failed to load project settings: ${error instanceof Error ? error.message : String(error)}`);
-      return DEFAULT_PROJECT_SETTINGS;
+      logger.warn("load-project-settings-failed", {
+        component: "settings-manager",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.projectSettingsCache = { ...DEFAULT_PROJECT_SETTINGS };
+      return { ...DEFAULT_PROJECT_SETTINGS };
     }
   }
 
   public saveProjectSettings(settings: Partial<ProjectSettings>): void {
     const current = this.readJsonFile<Partial<ProjectSettings>>(this.projectSettingsPath) || DEFAULT_PROJECT_SETTINGS;
-    this.writeJsonFile(this.projectSettingsPath, { ...DEFAULT_PROJECT_SETTINGS, ...current, ...settings });
+    const merged = { ...DEFAULT_PROJECT_SETTINGS, ...current, ...settings };
+    this.writeJsonFile(this.projectSettingsPath, merged);
+    this.projectSettingsCache = merged;
   }
 
   public updateProjectSetting<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]): void {

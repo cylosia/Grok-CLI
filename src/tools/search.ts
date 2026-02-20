@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { ToolResult } from "../types/index.js";
 import fs from "fs-extra";
 import * as path from "path";
+import { logger } from "../utils/logger.js";
 
 export interface SearchResult {
   file: string;
@@ -337,7 +338,11 @@ export class SearchTool {
           }
         }
       } catch (error) {
-        // Skip directories we can't read
+        logger.warn("search-skip-unreadable-directory", {
+          component: "search-tool",
+          directory: dir,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     };
 
