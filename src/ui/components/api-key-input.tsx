@@ -54,8 +54,6 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
       await probeClient.listModels();
       const agent = new GrokAgent(apiKey);
 
-      // Set environment variable for current process
-      process.env.GROK_API_KEY = apiKey;
 
       // Persist non-sensitive settings; API key remains in memory for this session
       try {
@@ -99,7 +97,7 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
       <Box flexDirection="column" marginTop={1}>
         <Text color="gray" dimColor>• Press Enter to submit</Text>
         <Text color="gray" dimColor>• Press Ctrl+C to exit</Text>
-        <Text color="gray" dimColor>Note: API key is kept in-memory for the current session only</Text>
+        <Text color="gray" dimColor>Note: API key is scoped to this app session and not exported globally</Text>
       </Box>
 
       {isSubmitting ? (

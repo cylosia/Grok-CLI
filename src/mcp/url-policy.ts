@@ -1,30 +1,3 @@
-function parseScheme(rawUrl: string): string {
-  const match = rawUrl.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//);
-  if (!match) {
-    throw new Error(`Invalid MCP URL: ${rawUrl}`);
-  }
-  return match[1].toLowerCase();
-}
-
-function parseHost(rawUrl: string): string {
-  const withoutScheme = rawUrl.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, "");
-  const authority = withoutScheme.split("/")[0] || "";
-  const hostPort = authority.includes("@") ? authority.split("@").pop() || "" : authority;
-  if (!hostPort) {
-    throw new Error(`Invalid MCP URL host: ${rawUrl}`);
-  }
-
-  if (hostPort.startsWith("[")) {
-    const end = hostPort.indexOf("]");
-    if (end <= 1) {
-      throw new Error(`Invalid MCP URL host: ${rawUrl}`);
-    }
-    return hostPort.slice(1, end).toLowerCase();
-  }
-
-  return hostPort.split(":")[0].toLowerCase();
-}
-
 function isPrivateIpv4(host: string): boolean {
   const parts = host.split(".").map((segment) => Number(segment));
   if (parts.length !== 4 || parts.some((value) => Number.isNaN(value))) {
@@ -40,26 +13,44 @@ function isPrivateIpv4(host: string): boolean {
 }
 
 function isPrivateIpv6(host: string): boolean {
-  return host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:");
+  const normalized = host.toLowerCase();
+  return normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80:");
 }
 
 function isPrivateHost(host: string): boolean {
-  if (host === "localhost" || host.endsWith(".local")) {
+  const normalized = host.toLowerCase();
+  if (normalized === "localhost" || normalized.endsWith(".local")) {
     return true;
   }
-  if (host.includes(":")) {
-    return isPrivateIpv6(host);
+  if (normalized.includes(":")) {
+    return isPrivateIpv6(normalized);
   }
-  return isPrivateIpv4(host);
+  return isPrivateIpv4(normalized);
 }
 
 export function validateMcpUrl(rawUrl: string, allowLocalHttp = false): string {
   const normalized = rawUrl.trim();
-  const scheme = parseScheme(normalized);
-  const host = parseHost(normalized);
 
+  const URLCtor = (globalThis as { URL?: new (input: string) => { protocol: string; hostname: string; toString(): string } }).URL;
+  if (!URLCtor) {
+    throw new Error("URL parser is not available in this runtime");
+  }
+
+  let parsed: { protocol: string; hostname: string; toString(): string };
+  try {
+    parsed = new URLCtor(normalized);
+  } catch {
+    throw new Error(`Invalid MCP URL: ${rawUrl}`);
+  }
+
+  const scheme = parsed.protocol.replace(/:$/, "").toLowerCase();
   if (scheme !== "https" && scheme !== "http") {
     throw new Error(`Unsupported MCP URL scheme: ${scheme}:`);
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (!host) {
+    throw new Error(`Invalid MCP URL host: ${rawUrl}`);
   }
 
   const isPrivate = isPrivateHost(host);
@@ -73,5 +64,5 @@ export function validateMcpUrl(rawUrl: string, allowLocalHttp = false): string {
     throw new Error("Private-network MCP URLs require explicit local-network opt-in");
   }
 
-  return normalized;
+  return parsed.toString();
 }

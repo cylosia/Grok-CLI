@@ -39,3 +39,16 @@ export interface ConfirmationState {
   skipThisSession: boolean;
   pendingOperation: boolean;
 }
+
+
+export function asMCPServerName(value: string): MCPServerName {
+  return value as MCPServerName;
+}
+
+export function asToolCallId(value: string): ToolCallId {
+  return value as ToolCallId;
+}
+
+export function asConfirmationRequestId(value: string): ConfirmationRequestId {
+  return value as ConfirmationRequestId;
+}

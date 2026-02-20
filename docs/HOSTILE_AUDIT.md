@@ -1,110 +1,119 @@
-# Hostile Production Audit (TypeScript/PostgreSQL)
+# Hostile Production Audit (TypeScript / PostgreSQL Checklist)
 
-## Scope and verification protocol
-- **Pass A (mechanical):** enumerated repository files and ran focused static scans for risky patterns (type assertions, process control, child_process use, JSON parsing, promise boundaries).
-- **Pass B (adversarial):** re-opened high-risk modules (`mcp/*`, `tools/*`, `utils/*`, entrypoint/config) and specifically re-checked catch paths and "obvious" code.
-- **Production checks executed:**
-  - `npm run -s typecheck` (passed)
-  - `npm run -s audit:ci` (blocked by environment: `Forbidden`)
-- **PostgreSQL note:** no PostgreSQL driver, migration system, SQL query layer, or schema artifacts exist in this codebase; SQL surgery checks are therefore not directly applicable.
+## Scope, method, and verification
+- **Pass 1 (systematic decomposition):** reviewed project config and every TypeScript source path under `src/` for type-safety, async behavior, security boundaries, error handling, and architectural coupling.
+- **Pass 2 (adversarial re-check):** re-reviewed "obvious" modules (`index`, `logger`, `settings-manager`, `mcp/*`, `tools/*`) and catch/error paths.
+- **Verification commands run:**
+  - `npm run -s typecheck` ✅
+  - `npm audit --audit-level=high` ⚠️ (registry endpoint returned 403 in this environment)
+- **Subagent note:** independent subagents are not available in this runtime, so findings were double-checked via two distinct manual passes plus targeted static pattern scans.
+- **PostgreSQL scope note:** this repository contains **no PostgreSQL driver/queries/migrations/schema** artifacts. SQL/transaction/index/migration checks are marked **N/A** for this codebase.
 
 ---
 
-## Phase 1 — Systematic decomposition findings
+## PHASE 1 — Systematic decomposition findings
 
 ### Critical (P0)
-
-1. **HTTP/SSE MCP transports are request-only and do not implement response ingestion**
-   - **File:Line:Column:** `src/mcp/transports.ts:181:3`, `src/mcp/transports.ts:186:7`, `src/mcp/transports.ts:210:3`, `src/mcp/transports.ts:217:7`
-   - **Category:** Architecture|Async
-   - **Violation:** `HttpClientTransport.send()` and `SSEClientTransport.send()` fire POSTs but never convert server responses/events into MCP protocol messages emitted back to the SDK transport consumer. This breaks request/response semantics for non-stdio transports.
-   - **Concrete fix:** Replace custom HTTP/SSE transport stubs with SDK-supported transport implementations (or implement full duplex protocol: parse responses, emit `message` events, and wire lifecycle hooks).
-   - **Risk if not fixed:** Remote MCP tooling over HTTP/SSE will fail or hang unpredictably in production, causing tool-call outages.
+- **None verified in current repository snapshot.**
 
 ### High (P1)
 
-2. **Unbounded ripgrep output buffering can exhaust process memory**
-   - **File:Line:Column:** `src/tools/search.ts:207:11`, `src/tools/search.ts:210:7`, `src/tools/search.ts:214:7`
-   - **Category:** Performance|Resilience
-   - **Violation:** `executeRipgrep()` concatenates all stdout/stderr into unbounded strings. Broad queries on large repos can consume hundreds of MBs+ and trigger OOM.
-   - **Concrete fix:** Enforce output caps (byte budget), stream-parse JSON lines incrementally, and terminate child process once cap/max-results is reached.
-   - **Risk if not fixed:** Under heavy searches, CLI crashes or becomes non-responsive.
-
-3. **MCP initialization failure causes repeated reconnect storms**
-   - **File:Line:Column:** `src/mcp/client.ts:117:3`, `src/mcp/client.ts:134:5`, `src/grok/tools.ts:329:3`, `src/grok/tools.ts:332:5`
+1. **Pending confirmations can deadlock forever after session reset**
+   - **File:Line:Column:** `src/utils/confirmation-service.ts:143:3`
    - **Category:** Async|Resilience
-   - **Violation:** `initialized` flips true **only** if all servers initialize successfully. Any persistent single-server failure makes every subsequent `getAllGrokTools()` retry all failed endpoints.
-   - **Concrete fix:** Track per-server init state and cooldown/backoff (`lastFailureAt`, `retryAfter`) instead of global all-or-nothing initialization.
-   - **Risk if not fixed:** log flooding, repeated failed network/process attempts, degraded latency.
+   - **Violation:** `resetSession()` clears `pendingQueue` without resolving/rejecting already-awaited confirmation promises.
+   - **Concrete fix:** Before clearing queue, iterate pending requests and resolve each with `{ confirmed: false, feedback: "Session reset" }`.
+   - **Risk if not fixed:** callers awaiting `requestConfirmation()` can hang indefinitely, stalling interactive flows.
 
-4. **Timeout path does not forcefully reap subprocesses**
-   - **File:Line:Column:** `src/tools/bash.ts:134:7`, `src/tools/bash.ts:136:9`
+2. **Logger can throw on circular context and crash error paths**
+   - **File:Line:Column:** `src/utils/logger.ts:42:16`
+   - **Category:** Observability|Resilience
+   - **Violation:** `JSON.stringify(payload)` is called without circular-safe serialization; a circular value in context causes a thrown exception inside logging itself.
+   - **Concrete fix:** Replace with safe serializer (e.g., custom replacer tracking seen objects) and hard-fallback to minimal log line if serialization fails.
+   - **Risk if not fixed:** exception handling/logging can fail catastrophically during incidents, obscuring root cause and potentially terminating control flow.
+
+3. **MCP tool calls use timeout race without cancellation of underlying operation**
+   - **File:Line:Column:** `src/mcp/client.ts:176:7`
    - **Category:** Async|Performance
-   - **Violation:** timed-out commands are sent `SIGTERM` only; no follow-up `SIGKILL` if process ignores termination.
-   - **Concrete fix:** after grace period (e.g., 1–2s), send `SIGKILL` and finalize with deterministic timeout error.
-   - **Risk if not fixed:** orphaned/stranded processes accumulate, consuming CPU/memory and file descriptors.
-
-5. **CLI returns success exit code on failed prompt execution**
-   - **File:Line:Column:** `src/index.tsx:76:5`, `src/index.tsx:82:5`
-   - **Category:** Architecture|Resilience
-   - **Violation:** CLI mode logs error in catch block but exits with `process.exit(0)`.
-   - **Concrete fix:** set non-zero exit code on failure (`process.exitCode = 1` or `process.exit(1)` in error path).
-   - **Risk if not fixed:** CI/automation cannot detect failures, causing silent bad deploy/ops decisions.
+   - **Violation:** `Promise.race` times out, but underlying `server.client.callTool(...)` is not cancelled/aborted.
+   - **Concrete fix:** Add cancellation support (AbortSignal if SDK supports it) or close/recreate hung client transport on timeout.
+   - **Risk if not fixed:** timed-out calls can continue consuming resources, leading to connection pressure and degraded throughput.
 
 ### Medium (P2)
 
-6. **Weak transport parsing silently downgrades invalid values to `stdio`**
-   - **File:Line:Column:** `src/commands/mcp.ts:21:1`, `src/commands/mcp.ts:25:3`
-   - **Category:** Type|Security
-   - **Violation:** `parseTransportType()` defaults unknown values to `stdio` rather than rejecting input.
-   - **Concrete fix:** throw on unknown transport value and surface an actionable validation error.
-   - **Risk if not fixed:** operator intent mismatch; accidental execution of local commands when remote transport was intended.
+4. **Unsafe narrowing via assertion on model role**
+   - **File:Line:Column:** `src/grok/client.ts:177:13`
+   - **Category:** Type
+   - **Violation:** `role: message.role as GrokRole` trusts external API data without runtime guard.
+   - **Concrete fix:** validate role explicitly (`if (role !== ... ) throw`) and map unknown roles to a controlled error path.
+   - **Risk if not fixed:** malformed upstream payloads can violate internal invariants and create hard-to-debug downstream behavior.
 
-7. **Legacy fallback path bypasses central URL validation flow in one branch**
-   - **File:Line:Column:** `src/commands/mcp.ts:153:9`, `src/commands/mcp.ts:178:15`
-   - **Category:** Security|Type
-   - **Violation:** parsed JSON config accepts nested transport objects and only conditionally validates URL depending on shape; malformed mixed payloads can create confusing partially-validated states.
-   - **Concrete fix:** normalize raw config into a strict schema first (single parse/validate function) and only construct `MCPServerConfig` from validated output.
-   - **Risk if not fixed:** edge-case config injection and inconsistent transport behavior.
-
-8. **Synchronous FS operations in settings manager block event loop**
-   - **File:Line:Column:** `src/utils/settings-manager.ts:61:21`, `src/utils/settings-manager.ts:75:7`, `src/utils/settings-manager.ts:81:5`
+5. **Synchronous filesystem operations in runtime paths**
+   - **File:Line:Column:** `src/utils/settings-manager.ts:61:21`
    - **Category:** Performance
-   - **Violation:** hot-path settings load/save uses sync IO (`readFileSync`, `writeFileSync`, `renameSync`, `fsyncSync`).
-   - **Concrete fix:** migrate to `fs/promises` with same atomic temp-file strategy.
-   - **Risk if not fixed:** interactive latency spikes on slow disks or remote filesystems.
+   - **Violation:** repeated sync I/O (`readFileSync`, `writeFileSync`, `renameSync`, `fsyncSync`) on interactive paths blocks the event loop.
+   - **Concrete fix:** migrate to `fs/promises` with atomic temp-file write semantics preserved.
+   - **Risk if not fixed:** latency spikes/frozen UI under slower filesystems or frequent settings writes.
+
+6. **Transport parser silently defaults missing type to stdio**
+   - **File:Line:Column:** `src/commands/mcp.ts:33:35`
+   - **Category:** Type|Security
+   - **Violation:** missing/invalid `type` is coerced through `String(... ?? 'stdio')`, allowing ambiguous configs to become stdio by default.
+   - **Concrete fix:** require explicit `transport.type` and reject absent values with actionable validation errors.
+   - **Risk if not fixed:** operator intent mismatch and accidental local-command execution path.
+
+7. **`/commit-and-push` forcibly stages everything with no path policy**
+   - **File:Line:Column:** `src/hooks/use-input-handler.ts:381:33`
+   - **Category:** Security|Architecture
+   - **Violation:** automatic `git add .` includes all tracked/untracked files, including accidental secrets/build artifacts.
+   - **Concrete fix:** switch to interactive/filtered staging (respect `.gitignore`, block known secret patterns, and show staged preview before commit).
+   - **Risk if not fixed:** high-likelihood secret leakage and noisy/irreversible commits in automation contexts.
 
 ### Low (P3)
 
-9. **Non-exhaustive string IDs across trust/queue/tool boundaries**
-   - **File:Line:Column:** `src/mcp/client.ts:8:3`, `src/utils/confirmation-service.ts:20:3`, `src/grok/client.ts:6:3`
-   - **Category:** Type
-   - **Violation:** high-value IDs (`server name`, `request id`, `tool call id`) are plain strings; accidental cross-assignment can compile.
-   - **Concrete fix:** introduce branded nominal types (`type ServerName = string & {__brand:'ServerName'}` etc.) at API boundaries.
-   - **Risk if not fixed:** latent wiring bugs survive compile-time checks.
+8. **Global process env mutation from UI component**
+   - **File:Line:Column:** `src/ui/components/api-key-input.tsx:58:7`
+   - **Category:** Architecture|Security
+   - **Violation:** setting `process.env.GROK_API_KEY` at runtime mutates global state from UI layer.
+   - **Concrete fix:** keep secrets in scoped in-memory credential store passed by dependency injection, not process-global mutation.
+   - **Risk if not fixed:** hidden coupling and broader accidental secret exposure surface inside process.
 
-10. **Catch blocks lose forensic detail in multiple operational paths**
-   - **File:Line:Column:** `src/tools/search.ts:257:7`, `src/ui/utils/markdown-renderer.tsx:17:3`, `src/grok/tools.ts:331:3`
-   - **Category:** Observability|Resilience
-   - **Violation:** errors are swallowed or reduced to coarse strings without structured context.
-   - **Concrete fix:** route all catches through structured logger with operation metadata and sanitized error payload.
-   - **Risk if not fixed:** slower incident triage and poor root-cause attribution.
+9. **URL validation relies on custom parser rather than WHATWG URL normalization**
+   - **File:Line:Column:** `src/mcp/url-policy.ts:1:1`
+   - **Category:** Security
+   - **Violation:** handcrafted parsing is brittle compared to standardized URL parsing and normalization.
+   - **Concrete fix:** parse via `new URL(rawUrl)` then enforce protocol/hostname/IP policy on normalized fields.
+   - **Risk if not fixed:** edge-case parser discrepancies can create policy bypass opportunities over time.
+
+10. **Branded IDs are defined but not consistently enforced across API boundaries**
+   - **File:Line:Column:** `src/types/index.ts:1:1`, `src/mcp/client.ts:9:3`
+   - **Category:** Type|Architecture
+   - **Violation:** many high-value identifiers remain plain `string` in interfaces/functions despite available branding primitives.
+   - **Concrete fix:** migrate external-facing IDs (`name`, tool names, request IDs) to branded types plus constructor/validator helpers.
+   - **Risk if not fixed:** cross-assignment mistakes compile and survive to runtime.
 
 ---
 
-## Phase 2 — Adversarial re-check
+## PHASE 2 — Adversarial review
 
-### Re-examined targets
-- `package.json`, `tsconfig.json`, `tsconfig.strict.json` (config drift/strictness/dependency surface)
-- "Obvious" modules likely to be trusted too quickly: `src/index.tsx`, `src/mcp/transports.ts`, `src/mcp/client.ts`, `src/tools/search.ts`, `src/tools/bash.ts`
-- error-heavy paths (`catch`, retry, timeout, process shutdown)
+### Re-examined "looks-fine" zones
+- `tsconfig.json`, `tsconfig.strict.json`, `package.json`
+- `src/index.tsx`, `src/utils/logger.ts`, `src/utils/settings-manager.ts`
+- `src/mcp/client.ts`, `src/mcp/transports.ts`, `src/mcp/url-policy.ts`
+- error/catch paths in tools and UI hooks
 
-### Immediate production-incident ranking
-1. **P0 — Broken HTTP/SSE MCP transport semantics** (`src/mcp/transports.ts`): remote MCP tool ecosystem can be effectively non-functional. **Blast radius:** all users depending on non-stdio MCP servers.
-2. **P1 — Unbounded ripgrep buffering** (`src/tools/search.ts`): memory blowups on large repos. **Blast radius:** users running broad/recursive searches.
-3. **P1 — MCP reconnect storm behavior** (`src/mcp/client.ts`, `src/grok/tools.ts`): repeated failed initialization can degrade every request path. **Blast radius:** all sessions with at least one bad MCP server entry.
-4. **P1 — Timeout without hard kill** (`src/tools/bash.ts`): lingering processes can poison long-running sessions/agents. **Blast radius:** users issuing commands that ignore SIGTERM.
-5. **P1 — false-success process exit code** (`src/index.tsx`): automation treats failures as success. **Blast radius:** CI/CD pipelines and scripted wrappers.
+### Additional adversarial conclusions
+- TypeScript strictness is enabled and baseline typecheck passes; major issues are mostly **runtime safety/invariants**, not compiler flags.
+- No PostgreSQL implementation exists in-repo; DB-specific checks are blocked by missing DB layer artifacts.
+- Most immediate incident risks come from async lifecycle handling (pending confirmations, non-cancelled races) and observability fragility (logger serialization failure).
+
+---
+
+## Immediate production-incident ranking (if deployed now)
+1. **Pending confirmation deadlock** (`confirmation-service`) — **Blast radius:** interactive command workflows needing user confirmation may stall indefinitely per session.
+2. **Logger serialization crash path** (`logger`) — **Blast radius:** all components using structured logging when given circular payloads; incident response visibility degradation is broad.
+3. **Non-cancelled timed-out MCP calls** (`mcp/client`) — **Blast radius:** MCP-enabled sessions under slow/hung tools; resource pressure accumulates over time.
+4. **Forced `git add .` commit flow** (`use-input-handler`) — **Blast radius:** users relying on auto-commit command; potential sensitive data commit/exfiltration.
 
 ## PostgreSQL / SQL surgery status
-- No SQL/PG implementation present in repository artifacts under review, so N+1/transaction/index/lock/migration checks are marked **N/A** for this codebase.
+- **N/A for this repository snapshot**: no SQL queries, PostgreSQL client usage, migrations, schema DDL, or DB access layer files were found.

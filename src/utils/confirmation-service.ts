@@ -2,7 +2,7 @@ import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import { EventEmitter } from "events";
 import { createHash } from "crypto";
-import { ConfirmationRequestId } from "../types/index.js";
+import { ConfirmationRequestId, asConfirmationRequestId } from "../types/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -64,7 +64,7 @@ export class ConfirmationService extends EventEmitter {
     }
 
     this.requestCounter += 1;
-    const requestId = createHash("sha256").update(`${Date.now()}_${this.requestCounter}_${options.filename}`).digest("hex") as ConfirmationRequestId;
+    const requestId = asConfirmationRequestId(createHash("sha256").update(`${Date.now()}_${this.requestCounter}_${options.filename}`).digest("hex"));
     let resolveFn: (result: ConfirmationResult) => void = () => {};
     const promise = new Promise<ConfirmationResult>((resolve) => {
       resolveFn = resolve;
@@ -141,6 +141,13 @@ export class ConfirmationService extends EventEmitter {
   }
 
   resetSession(): void {
+    for (const pending of this.pendingQueue) {
+      pending.resolve({
+        confirmed: false,
+        feedback: "Confirmation session reset",
+      });
+    }
+
     this.sessionFlags = {
       fileOperations: false,
       bashCommands: false,
