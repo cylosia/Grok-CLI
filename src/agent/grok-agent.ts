@@ -10,7 +10,7 @@ import {
   ConfirmationTool,
   SearchTool,
 } from "../tools/index.js";
-import { ToolResult } from "../types/index.js";
+import { TaskId, ToolResult } from "../types/index.js";
 import { createTokenCounter, TokenCounter } from "../utils/token-counter.js";
 import { loadCustomInstructions } from "../utils/custom-instructions.js";
 import { getSettingsManager } from "../utils/settings-manager.js";
@@ -391,7 +391,7 @@ export class GrokAgent extends EventEmitter {
     }
 
     const typedTask = {
-      id: task.id || `task_${Date.now()}`,
+      id: (task.id || `task_${Date.now()}`) as TaskId,
       type: task.type || "reason",
       payload: task.payload || {},
       priority: typeof task.priority === "number" ? task.priority : 0,

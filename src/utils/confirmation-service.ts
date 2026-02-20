@@ -1,6 +1,7 @@
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import { EventEmitter } from "events";
+import { createHash } from "crypto";
 
 const execFileAsync = promisify(execFile);
 
@@ -8,7 +9,7 @@ export interface ConfirmationOptions {
   operation: string;
   filename: string;
   showVSCodeOpen?: boolean;
-  content?: string; // Content to show in confirmation dialog
+  content?: string;
 }
 
 export interface ConfirmationResult {
@@ -20,14 +21,14 @@ export interface ConfirmationResult {
 interface PendingConfirmation {
   id: string;
   resolve: (result: ConfirmationResult) => void;
+  promise: Promise<ConfirmationResult>;
 }
 
 export class ConfirmationService extends EventEmitter {
   private static instance: ConfirmationService;
-  private pendingConfirmation: Promise<ConfirmationResult> | null = null;
   private pendingQueue: PendingConfirmation[] = [];
+  private requestCounter = 0;
 
-  // Session flags for different operation types
   private sessionFlags = {
     fileOperations: false,
     bashCommands: false,
@@ -41,15 +42,10 @@ export class ConfirmationService extends EventEmitter {
     return ConfirmationService.instance;
   }
 
-  constructor() {
-    super();
-  }
-
   async requestConfirmation(
     options: ConfirmationOptions,
     operationType: "file" | "bash" = "file"
   ): Promise<ConfirmationResult> {
-    // Check session flags
     if (
       this.sessionFlags.allOperations ||
       (operationType === "file" && this.sessionFlags.fileOperations) ||
@@ -58,37 +54,35 @@ export class ConfirmationService extends EventEmitter {
       return { confirmed: true };
     }
 
-    // If VS Code should be opened, try to open it
     if (options.showVSCodeOpen) {
       try {
         await this.openInVSCode(options.filename);
-      } catch (error) {
-        // If VS Code opening fails, continue without it
+      } catch {
         options.showVSCodeOpen = false;
       }
     }
 
-    // Create a promise that will be resolved by the UI component
-    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    this.pendingConfirmation = new Promise<ConfirmationResult>((resolve) => {
-      this.pendingQueue.push({ id: requestId, resolve });
+    this.requestCounter += 1;
+    const requestId = createHash("sha256").update(`${Date.now()}_${this.requestCounter}_${options.filename}`).digest("hex");
+    let resolveFn: (result: ConfirmationResult) => void = () => {};
+    const promise = new Promise<ConfirmationResult>((resolve) => {
+      resolveFn = resolve;
     });
 
-    // Emit custom event that the UI can listen to (using setImmediate to ensure the UI updates)
+    this.pendingQueue.push({ id: requestId, resolve: resolveFn, promise });
+
     setImmediate(() => {
       this.emit("confirmation-requested", { ...options, requestId });
     });
 
-    const result = await this.pendingConfirmation;
+    const result = await promise;
 
     if (result.dontAskAgain) {
-      // Set the appropriate session flag based on operation type
       if (operationType === "file") {
         this.sessionFlags.fileOperations = true;
       } else if (operationType === "bash") {
         this.sessionFlags.bashCommands = true;
       }
-      // Could also set allOperations for global skip
     }
 
     return result;
@@ -104,7 +98,6 @@ export class ConfirmationService extends EventEmitter {
 
     const [request] = this.pendingQueue.splice(queueIndex, 1);
     request.resolve(result);
-    this.pendingConfirmation = this.pendingQueue.length > 0 ? this.pendingConfirmation : null;
   }
 
   confirmOperation(confirmed: boolean, dontAskAgain?: boolean, requestId?: string): void {
@@ -153,7 +146,6 @@ export class ConfirmationService extends EventEmitter {
       allOperations: false,
     };
     this.pendingQueue = [];
-    this.pendingConfirmation = null;
   }
 
   getSessionFlags() {

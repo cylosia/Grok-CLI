@@ -35,6 +35,95 @@ export interface ChatOptions {
   signal?: AbortSignal;
 }
 
+function toOpenAiMessages(messages: GrokMessage[]): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  return messages.map((message) => {
+    if (message.role === "tool") {
+      if (!message.tool_call_id || typeof message.content !== "string") {
+        throw new Error("Tool messages require string content and tool_call_id");
+      }
+      return {
+        role: "tool",
+        content: message.content,
+        tool_call_id: message.tool_call_id,
+      } satisfies OpenAI.Chat.Completions.ChatCompletionToolMessageParam;
+    }
+
+    if (message.role === "assistant") {
+      return {
+        role: "assistant",
+        content: message.content ?? null,
+        ...(message.tool_calls ? { tool_calls: message.tool_calls } : {}),
+      } satisfies OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam;
+    }
+
+    if (message.role === "user") {
+      return {
+        role: "user",
+        content: message.content ?? "",
+      } satisfies OpenAI.Chat.Completions.ChatCompletionUserMessageParam;
+    }
+
+    return {
+      role: "system",
+      content: message.content ?? "",
+    } satisfies OpenAI.Chat.Completions.ChatCompletionSystemMessageParam;
+  });
+}
+
+function toOpenAiTools(tools?: GrokTool[]): OpenAI.Chat.Completions.ChatCompletionTool[] | undefined {
+  if (!tools) {
+    return undefined;
+  }
+  return tools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: tool.function.parameters,
+    },
+  }));
+}
+
+function parseToolCalls(toolCalls: unknown): GrokToolCall[] {
+  if (!Array.isArray(toolCalls)) {
+    return [];
+  }
+
+  const parsed: GrokToolCall[] = [];
+  for (const toolCall of toolCalls) {
+    if (
+      toolCall &&
+      typeof toolCall === "object" &&
+      "id" in toolCall &&
+      "type" in toolCall &&
+      "function" in toolCall
+    ) {
+      const call = toolCall as {
+        id?: unknown;
+        type?: unknown;
+        function?: { name?: unknown; arguments?: unknown };
+      };
+      if (
+        typeof call.id === "string" &&
+        call.type === "function" &&
+        call.function &&
+        typeof call.function.name === "string" &&
+        typeof call.function.arguments === "string"
+      ) {
+        parsed.push({
+          id: call.id,
+          type: "function",
+          function: {
+            name: call.function.name,
+            arguments: call.function.arguments,
+          },
+        });
+      }
+    }
+  }
+  return parsed;
+}
+
 export class GrokClient {
   private client: OpenAI;
   private currentModel = "grok-420";
@@ -63,12 +152,13 @@ export class GrokClient {
   }
 
   async chat(messages: GrokMessage[], options: ChatOptions = {}): Promise<GrokMessage> {
+    const convertedTools = toOpenAiTools(options.tools);
     const response = await this.withRetry(() =>
       this.client.chat.completions.create(
         {
           model: this.currentModel,
-          messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-          ...(options.tools ? { tools: options.tools as OpenAI.Chat.Completions.ChatCompletionTool[] } : {}),
+          messages: toOpenAiMessages(messages),
+          ...(convertedTools ? { tools: convertedTools } : {}),
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(typeof options.maxTokens === "number" ? { max_tokens: options.maxTokens } : {}),
         },
@@ -86,7 +176,7 @@ export class GrokClient {
     return {
       role: message.role as GrokRole,
       content: typeof message.content === "string" ? message.content : null,
-      ...(message.tool_calls ? { tool_calls: message.tool_calls as GrokToolCall[] } : {}),
+      ...(message.tool_calls ? { tool_calls: parseToolCalls(message.tool_calls) } : {}),
     };
   }
 
@@ -94,12 +184,13 @@ export class GrokClient {
     messages: GrokMessage[],
     options: ChatOptions = {}
   ): AsyncGenerator<{ content?: string; toolCalls?: GrokToolCall[]; done?: boolean }> {
+    const convertedTools = toOpenAiTools(options.tools);
     const stream = await this.withRetry(() =>
       this.client.chat.completions.create(
         {
           model: this.currentModel,
-          messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-          ...(options.tools ? { tools: options.tools as OpenAI.Chat.Completions.ChatCompletionTool[] } : {}),
+          messages: toOpenAiMessages(messages),
+          ...(convertedTools ? { tools: convertedTools } : {}),
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(typeof options.maxTokens === "number" ? { max_tokens: options.maxTokens } : {}),
           stream: true,

@@ -45,8 +45,11 @@ Full TUI launches automatically when TTY is detected.
       const manager = getMCPManager();
       const servers = manager.getServers();
       await Promise.allSettled(servers.map((server) => manager.removeServer(server)));
-    } catch {
-      // Ignore shutdown cleanup errors and continue process termination.
+    } catch (error) {
+      logger.warn("shutdown-cleanup-failed", {
+        component: "index",
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     process.exit(0);

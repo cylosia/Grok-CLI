@@ -2,6 +2,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { createTransport, MCPTransport, TransportType } from "./transports.js";
 import { getTrustedMCPServerFingerprints, loadMCPConfig } from "./config.js";
 import { createHash } from "crypto";
+import { logger } from "../utils/logger.js";
+import { MCPServerName } from "../types/index.js";
 
 export interface MCPServerConfig {
   name: string;
@@ -32,7 +34,7 @@ interface ConnectedServer {
 }
 
 export class MCPManager {
-  private servers = new Map<string, ConnectedServer>();
+  private servers = new Map<MCPServerName, ConnectedServer>();
   private initialized = false;
   private static readonly TOOL_CALL_TIMEOUT_MS = 30_000;
 
@@ -47,10 +49,6 @@ export class MCPManager {
   }
 
   private ensureTrustedServer(config: MCPServerConfig): void {
-    if (config.transport.type !== "stdio") {
-      return;
-    }
-
     const trusted = getTrustedMCPServerFingerprints();
     const expected = trusted[config.name];
     const fingerprint = this.getServerFingerprint(config);
@@ -62,7 +60,8 @@ export class MCPManager {
   }
 
   async addServer(config: MCPServerConfig): Promise<void> {
-    if (this.servers.has(config.name)) {
+    const serverName = config.name as MCPServerName;
+    if (this.servers.has(serverName)) {
       return;
     }
 
@@ -89,7 +88,7 @@ export class MCPManager {
         serverName: config.name,
       }));
 
-      this.servers.set(config.name, {
+      this.servers.set(serverName, {
         config,
         transport,
         client,
@@ -102,14 +101,15 @@ export class MCPManager {
   }
 
   async removeServer(name: string): Promise<void> {
-    const server = this.servers.get(name);
+    const brandedName = name as MCPServerName;
+    const server = this.servers.get(brandedName);
     if (!server) {
       return;
     }
 
     await server.client.close();
     await server.transport.disconnect();
-    this.servers.delete(name);
+    this.servers.delete(brandedName);
   }
 
   getTools(): MCPTool[] {
@@ -117,11 +117,11 @@ export class MCPManager {
   }
 
   getServers(): string[] {
-    return [...this.servers.keys()];
+    return [...this.servers.keys()].map((name) => name as string);
   }
 
   getTransportType(name: string): string | undefined {
-    return this.servers.get(name)?.transport.getType();
+    return this.servers.get(name as MCPServerName)?.transport.getType();
   }
 
   async ensureServersInitialized(): Promise<void> {
@@ -136,7 +136,11 @@ export class MCPManager {
         await this.addServer(server);
         successfulInitializations += 1;
       } catch (error) {
-        console.warn(`Failed to initialize MCP server "${server.name}": ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn("mcp-server-initialize-failed", {
+          component: "mcp-client",
+          server: server.name,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     this.initialized = successfulInitializations === config.servers.length;
@@ -148,7 +152,7 @@ export class MCPManager {
       throw new Error(`Invalid MCP tool name: ${name}`);
     }
 
-    const serverName = parts[1];
+    const serverName = parts[1] as MCPServerName;
     const toolName = parts.slice(2).join("__");
     const server = this.servers.get(serverName);
 

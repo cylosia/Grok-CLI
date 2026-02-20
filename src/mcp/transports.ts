@@ -3,6 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import axios, { AxiosInstance } from "axios";
+import { validateMcpUrl } from "./url-policy.js";
 
 export type TransportType = 'stdio' | 'http' | 'sse';
 
@@ -79,12 +80,14 @@ export class StdioTransport implements MCPTransport {
 }
 
 export class HttpTransport extends EventEmitter implements MCPTransport {
+  private activeTransport: HttpClientTransport | null = null;
 
   constructor(private config: TransportConfig) {
     super();
     if (!config.url) {
       throw new Error('URL is required for HTTP transport');
     }
+    this.config.url = validateMcpUrl(config.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
   }
 
   async connect(): Promise<Transport> {
@@ -107,10 +110,15 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
       });
     }
 
-    return new HttpClientTransport(client);
+    this.activeTransport = new HttpClientTransport(client);
+    return this.activeTransport;
   }
 
   async disconnect(): Promise<void> {
+    if (this.activeTransport) {
+      await this.activeTransport.close();
+      this.activeTransport = null;
+    }
   }
 
   getType(): TransportType {
@@ -119,12 +127,14 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
 }
 
 export class SSETransport extends EventEmitter implements MCPTransport {
+  private activeTransport: SSEClientTransport | null = null;
 
   constructor(private config: TransportConfig) {
     super();
     if (!config.url) {
       throw new Error('URL is required for SSE transport');
     }
+    this.config.url = validateMcpUrl(config.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
   }
 
   async connect(): Promise<Transport> {
@@ -132,7 +142,8 @@ export class SSETransport extends EventEmitter implements MCPTransport {
       try {
         // For Node.js environment, we'll use a simple HTTP-based approach
         // In a real implementation, you'd use a proper SSE library like 'eventsource'
-          resolve(new SSEClientTransport(this.config.url!));
+          this.activeTransport = new SSEClientTransport(this.config.url!);
+          resolve(this.activeTransport);
       } catch (error) {
         reject(error);
       }
@@ -140,6 +151,10 @@ export class SSETransport extends EventEmitter implements MCPTransport {
   }
 
   async disconnect(): Promise<void> {
+    if (this.activeTransport) {
+      await this.activeTransport.close();
+      this.activeTransport = null;
+    }
   }
 
   getType(): TransportType {
@@ -149,6 +164,8 @@ export class SSETransport extends EventEmitter implements MCPTransport {
 
 // Custom HTTP Transport implementation
 class HttpClientTransport extends EventEmitter implements Transport {
+  private closed = false;
+
   constructor(private client: AxiosInstance) {
     super();
   }
@@ -158,10 +175,13 @@ class HttpClientTransport extends EventEmitter implements Transport {
   }
 
   async close(): Promise<void> {
-    // Nothing to close for HTTP transport
+    this.closed = true;
   }
 
   async send(message: Parameters<Transport["send"]>[0]): Promise<void> {
+    if (this.closed) {
+      throw new Error("HTTP transport is closed");
+    }
     try {
       await this.client.post('/rpc', message);
     } catch (error) {
@@ -173,6 +193,8 @@ class HttpClientTransport extends EventEmitter implements Transport {
 
 // Custom SSE Transport implementation
 class SSEClientTransport extends EventEmitter implements Transport {
+  private closed = false;
+
   constructor(private url: string) {
     super();
   }
@@ -182,10 +204,13 @@ class SSEClientTransport extends EventEmitter implements Transport {
   }
 
   async close(): Promise<void> {
-    // Nothing to close for basic SSE transport
+    this.closed = true;
   }
 
   async send(message: Parameters<Transport["send"]>[0]): Promise<void> {
+    if (this.closed) {
+      throw new Error("SSE transport is closed");
+    }
     // For bidirectional communication over SSE, we typically use HTTP POST
     // for sending messages and SSE for receiving
     try {

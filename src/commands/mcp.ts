@@ -4,6 +4,7 @@ import { getMCPManager } from '../grok/tools.js';
 import { MCPServerConfig } from '../mcp/client.js';
 import chalk from 'chalk';
 import { createHash } from 'crypto';
+import { validateMcpUrl } from '../mcp/url-policy.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -77,6 +78,12 @@ export function createMCPCommand(): Command {
         } else if (transportType === 'http' || transportType === 'sse') {
           if (!options.url) {
             console.error(chalk.red(`Error: --url is required for ${transportType} transport`));
+            process.exit(1);
+          }
+          try {
+            options.url = validateMcpUrl(String(options.url), process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
+          } catch (error) {
+            console.error(chalk.red(`Error: ${error instanceof Error ? error.message : String(error)}`));
             process.exit(1);
           }
         } else {
@@ -153,7 +160,7 @@ export function createMCPCommand(): Command {
           type: 'stdio',
           ...(typeof parsedConfig.command === 'string' ? { command: parsedConfig.command } : {}),
           ...(isStringArray(parsedConfig.args) ? { args: parsedConfig.args } : {}),
-          ...(typeof parsedConfig.url === 'string' ? { url: parsedConfig.url } : {}),
+          ...(typeof parsedConfig.url === 'string' ? { url: validateMcpUrl(parsedConfig.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1") } : {}),
           ...(isStringRecord(parsedConfig.env) ? { env: parsedConfig.env } : {}),
           ...(isStringRecord(parsedConfig.headers) ? { headers: parsedConfig.headers } : {}),
         };
@@ -170,7 +177,7 @@ export function createMCPCommand(): Command {
               transportConfig.args = parsedConfig.transport.args;
             }
             if (typeof parsedConfig.transport.url === 'string') {
-              transportConfig.url = parsedConfig.transport.url;
+              transportConfig.url = validateMcpUrl(parsedConfig.transport.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
             }
             if (isStringRecord(parsedConfig.transport.env)) {
               transportConfig.env = parsedConfig.transport.env;
