@@ -8,7 +8,7 @@ export interface MCPConfig {
 export function loadMCPConfig(): MCPConfig {
   const manager = getSettingsManager();
   const projectSettings = manager.loadProjectSettings();
-  return { servers: projectSettings.mcpServers ? Object.values(projectSettings.mcpServers) : [] };
+  return { servers: projectSettings.mcpServers ? (Object.values(projectSettings.mcpServers) as MCPServerConfig[]) : [] };
 }
 
 export function addMCPServer(config: MCPServerConfig): void {

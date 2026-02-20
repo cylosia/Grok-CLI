@@ -15,7 +15,7 @@ export interface UserSettings {
 
 export interface ProjectSettings {
   model?: string;
-  mcpServers?: Record<string, any>;
+  mcpServers?: Record<string, unknown>;
 }
 
 const DEFAULT_USER_SETTINGS: UserSettings = {

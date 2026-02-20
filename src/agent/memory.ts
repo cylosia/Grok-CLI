@@ -1,22 +1,20 @@
-import { GrokAgent } from "./grok-agent.js";
-
 export class AgentMemory {
-  private memory: Map<string, any> = new Map();
-  private userProfile: Map<string, any> = new Map();
+  private memory: Map<string, unknown> = new Map();
+  private userProfile: Map<string, unknown> = new Map();
 
-  async store(key: string, data: any) {
+  async store(key: string, data: unknown): Promise<void> {
     this.memory.set(key, data);
   }
 
-  async recall(key: string) {
-    return this.memory.get(key);
+  async recall<T>(key: string): Promise<T | undefined> {
+    return this.memory.get(key) as T | undefined;
   }
 
-  async updateProfile(key: string, value: any) {
+  async updateProfile(key: string, value: unknown): Promise<void> {
     this.userProfile.set(key, value);
   }
 
-  async getProfile() {
-    return Object.fromEntries(this.userProfile);
+  async getProfile<T>(key: string): Promise<T | undefined> {
+    return this.userProfile.get(key) as T | undefined;
   }
 }

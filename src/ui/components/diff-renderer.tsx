@@ -5,9 +5,17 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { Colors } from '../utils/colors.js';
-import crypto from 'crypto';
 import { colorizeCode } from '../utils/code-colorizer.js';
 import { MaxSizedBox } from '../shared/max-sized-box.js';
+
+
+function hashText(input: string): string {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(16);
+}
 
 interface DiffLine {
   type: 'add' | 'del' | 'context' | 'hunk' | 'other';
@@ -172,7 +180,7 @@ const renderDiffContent = (
 
   const key = filename
     ? `diff-box-${filename}`
-    : `diff-box-${crypto.createHash('sha1').update(JSON.stringify(parsedLines)).digest('hex')}`;
+    : `diff-box-${hashText(JSON.stringify(parsedLines))}`;
 
   let lastLineNumber: number | null = null;
   const MAX_CONTEXT_LINES_WITHOUT_GAP = 5;

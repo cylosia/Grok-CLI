@@ -478,9 +478,14 @@ Respond with ONLY the commit message, no additional text.`;
         // Execute the commit
         const cleanCommitMessage = commitMessage
           .trim()
-          .replace(/^["']|["']$/g, "");
-        const commitCommand = `git commit -m "${cleanCommitMessage}"`;
-        const commitResult = await agent.executeBashCommand(commitCommand);
+          .replace(/^["']|["']$/g, "")
+          .replace(/[\n\r\0]/g, " ");
+        const commitResult = await agent.executeBashCommandArgs("git", [
+          "commit",
+          "-m",
+          cleanCommitMessage,
+        ]);
+        const commitCommand = `git commit -m ${JSON.stringify(cleanCommitMessage)}`;
 
         const commitEntry: ChatEntry = {
           type: "tool_result",

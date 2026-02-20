@@ -33,7 +33,7 @@ export class ParallelExecutor {
           return { success: false, error: confirmation.feedback || "User rejected" };
         }
 
-        return this.agent.delegate(task as unknown as Record<string, unknown>);
+        return this.agent.delegate({ ...task, priority: 0 });
       })
     );
 

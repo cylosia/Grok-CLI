@@ -8,6 +8,7 @@ export class MorphEditorTool {
   private confirmationService = ConfirmationService.getInstance();
   private morphApiKey: string;
   private morphBaseUrl: string = "https://api.morphllm.com/v1";
+  private workspaceRoot = process.cwd();
 
   constructor(apiKey?: string) {
     this.morphApiKey = apiKey || process.env.MORPH_API_KEY || "";
@@ -45,7 +46,7 @@ export class MorphEditorTool {
     codeEdit: string
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = path.resolve(targetFile);
+      const resolvedPath = this.resolveSafePath(targetFile);
 
       if (!(await fs.pathExists(resolvedPath))) {
         return {
@@ -328,7 +329,7 @@ export class MorphEditorTool {
     viewRange?: [number, number]
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = path.resolve(filePath);
+      const resolvedPath = this.resolveSafePath(filePath);
 
       if (await fs.pathExists(resolvedPath)) {
         const stats = await fs.stat(resolvedPath);
@@ -348,7 +349,7 @@ export class MorphEditorTool {
           const [start, end] = viewRange;
           const selectedLines = lines.slice(start - 1, end);
           const numberedLines = selectedLines
-            .map((line, idx) => `${start + idx}: ${line}`)
+            .map((line: string, idx: number) => `${start + idx}: ${line}`)
             .join("\n");
 
           return {
@@ -360,7 +361,7 @@ export class MorphEditorTool {
         const totalLines = lines.length;
         const displayLines = totalLines > 10 ? lines.slice(0, 10) : lines;
         const numberedLines = displayLines
-          .map((line, idx) => `${idx + 1}: ${line}`)
+          .map((line: string, idx: number) => `${idx + 1}: ${line}`)
           .join("\n");
         const additionalLinesMessage =
           totalLines > 10 ? `\n... +${totalLines - 10} lines` : "";
@@ -381,6 +382,18 @@ export class MorphEditorTool {
         error: `Error viewing ${filePath}: ${error.message}`,
       };
     }
+  }
+
+
+  private resolveSafePath(filePath: string): string {
+    const resolvedPath = path.resolve(this.workspaceRoot, filePath);
+    const rootPrefix = this.workspaceRoot.endsWith("/") ? this.workspaceRoot : `${this.workspaceRoot}/`;
+
+    if (resolvedPath !== this.workspaceRoot && !resolvedPath.startsWith(rootPrefix)) {
+      throw new Error(`Path escapes workspace root: ${filePath}`);
+    }
+
+    return resolvedPath;
   }
 
   setApiKey(apiKey: string): void {

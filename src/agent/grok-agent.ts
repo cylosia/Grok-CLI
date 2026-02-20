@@ -329,17 +329,27 @@ export class GrokAgent extends EventEmitter {
     return this.bash.execute(command);
   }
 
-  async delegate(task: Record<string, unknown>): Promise<TaskResult> {
+  async executeBashCommandArgs(command: string, args: string[]): Promise<ToolResult> {
+    return this.bash.executeArgs(command, args);
+  }
+
+  async delegate(task: {
+    id?: string;
+    type?: "edit" | "git" | "search" | "mcp" | "reason";
+    payload?: Record<string, unknown>;
+    priority?: number;
+    context?: Record<string, unknown>;
+  }): Promise<TaskResult> {
     if (!this.supervisor) {
       return { success: false, error: "Supervisor is disabled for this agent instance" };
     }
 
     const typedTask = {
-      id: String(task.id || `task_${Date.now()}`),
-      type: (task.type as "edit" | "git" | "search" | "mcp" | "reason") || "reason",
-      payload: (task.payload as Record<string, unknown>) || task,
+      id: task.id || `task_${Date.now()}`,
+      type: task.type || "reason",
+      payload: task.payload || {},
       priority: typeof task.priority === "number" ? task.priority : 0,
-      context: (task.context as Record<string, unknown> | undefined) || undefined,
+      context: task.context,
     };
 
     return this.supervisor.executeTask(typedTask);

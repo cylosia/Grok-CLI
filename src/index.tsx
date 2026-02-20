@@ -37,13 +37,17 @@ Full TUI launches automatically when TTY is detected.
     console.log("🖥️  CLI Mode (MINGW64 compatible)");
     console.log(`Prompt: ${prompt}`);
 
-    const agent = new GrokAgent(process.env.GROK_API_KEY || "demo-key");
+    const apiKey = process.env.GROK_API_KEY;
+    if (!apiKey) {
+      throw new Error("GROK_API_KEY is required");
+    }
+    const agent = new GrokAgent(apiKey);
     try {
       const result = await agent.processUserMessage(prompt);
       console.log("\nResult:");
       console.log(JSON.stringify(result, null, 2));
-    } catch (err: any) {
-      console.error("Error:", err.message);
+    } catch (err) {
+      console.error("Error:", err instanceof Error ? err.message : String(err));
     }
     process.exit(0);
   }
