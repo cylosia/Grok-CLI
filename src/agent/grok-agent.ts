@@ -281,17 +281,22 @@ export class GrokAgent extends EventEmitter {
         case "bash":
           return this.bash.execute(String(args.command || ""));
         case "search":
-          return this.search.search(String(args.query || ""), {
+          {
+          const searchOptions = {
             searchType: (args.search_type as "text" | "files" | "both" | undefined) ?? "both",
-            includePattern: typeof args.include_pattern === "string" ? args.include_pattern : undefined,
-            excludePattern: typeof args.exclude_pattern === "string" ? args.exclude_pattern : undefined,
-            caseSensitive: typeof args.case_sensitive === "boolean" ? args.case_sensitive : undefined,
-            wholeWord: typeof args.whole_word === "boolean" ? args.whole_word : undefined,
-            regex: typeof args.regex === "boolean" ? args.regex : undefined,
-            maxResults: typeof args.max_results === "number" ? args.max_results : undefined,
-            fileTypes: Array.isArray(args.file_types) ? args.file_types.map(String) : undefined,
-            includeHidden: typeof args.include_hidden === "boolean" ? args.include_hidden : undefined,
+            ...(typeof args.include_pattern === "string" ? { includePattern: args.include_pattern } : {}),
+            ...(typeof args.exclude_pattern === "string" ? { excludePattern: args.exclude_pattern } : {}),
+            ...(typeof args.case_sensitive === "boolean" ? { caseSensitive: args.case_sensitive } : {}),
+            ...(typeof args.whole_word === "boolean" ? { wholeWord: args.whole_word } : {}),
+            ...(typeof args.regex === "boolean" ? { regex: args.regex } : {}),
+            ...(typeof args.max_results === "number" ? { maxResults: args.max_results } : {}),
+            ...(Array.isArray(args.file_types) ? { fileTypes: args.file_types.map(String) } : {}),
+            ...(typeof args.include_hidden === "boolean" ? { includeHidden: args.include_hidden } : {}),
+          };
+          return this.search.search(String(args.query || ""), {
+            ...searchOptions,
           });
+          }
         case "create_todo_list":
           return this.todoTool.createTodoList((args.todos as never[]) || []);
         case "update_todo_list":
@@ -302,7 +307,7 @@ export class GrokAgent extends EventEmitter {
           return this.confirmationTool.requestConfirmation({
             operation: String(args.operation || "Confirm action"),
             filename: String(args.filename || ""),
-            description: typeof args.description === "string" ? args.description : undefined,
+            ...(typeof args.description === "string" ? { description: args.description } : {}),
             showVSCodeOpen: Boolean(args.show_vscode_open),
             autoAccept: Boolean(args.auto_accept),
           });
@@ -362,7 +367,7 @@ export class GrokAgent extends EventEmitter {
   getMCPInitializationStatus(): { initialized: boolean; error?: string } {
     return {
       initialized: this.mcpInitialized,
-      error: this.mcpInitError || undefined,
+      ...(this.mcpInitError ? { error: this.mcpInitError } : {}),
     };
   }
 
@@ -390,7 +395,7 @@ export class GrokAgent extends EventEmitter {
       type: task.type || "reason",
       payload: task.payload || {},
       priority: typeof task.priority === "number" ? task.priority : 0,
-      context: task.context,
+      ...(task.context ? { context: task.context } : {}),
     };
 
     return this.supervisor.executeTask(typedTask);

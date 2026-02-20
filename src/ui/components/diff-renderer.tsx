@@ -2,10 +2,8 @@
  * Professional diff renderer component
  */
 
-import React from 'react';
 import { Box, Text } from 'ink';
 import { Colors } from '../utils/colors.js';
-import { colorizeCode } from '../utils/code-colorizer.js';
 import { MaxSizedBox } from '../shared/max-sized-box.js';
 
 
@@ -187,7 +185,7 @@ const renderDiffContent = (
 
   return (
     <MaxSizedBox
-      maxHeight={availableTerminalHeight}
+      {...(typeof availableTerminalHeight === 'number' ? { maxHeight: availableTerminalHeight } : {})}
       maxWidth={terminalWidth}
       key={key}
     >
@@ -253,8 +251,8 @@ const renderDiffContent = (
         acc.push(
           <Box key={lineKey} flexDirection="row">
             <Text color={Colors.Gray} dimColor={dim}>{gutterNumStr.padEnd(4)}</Text>
-            <Text color={backgroundColor ? '#000000' : undefined} backgroundColor={backgroundColor} dimColor={!backgroundColor && dim}>{prefixSymbol} </Text>
-            <Text color={backgroundColor ? '#000000' : undefined} backgroundColor={backgroundColor} dimColor={!backgroundColor && dim} wrap="wrap">
+            <Text {...(backgroundColor ? { color: '#000000' } : {})} {...(backgroundColor ? { backgroundColor } : {})} dimColor={!backgroundColor && dim}>{prefixSymbol} </Text>
+            <Text {...(backgroundColor ? { color: '#000000' } : {})} {...(backgroundColor ? { backgroundColor } : {})} dimColor={!backgroundColor && dim} wrap="wrap">
               {displayContent}
             </Text>
           </Box>,
@@ -263,26 +261,4 @@ const renderDiffContent = (
       }, [])}
     </MaxSizedBox>
   );
-};
-
-
-const getLanguageFromExtension = (extension: string): string | null => {
-  const languageMap: { [key: string]: string } = {
-    js: 'javascript',
-    ts: 'typescript',
-    py: 'python',
-    json: 'json',
-    css: 'css',
-    html: 'html',
-    sh: 'bash',
-    md: 'markdown',
-    yaml: 'yaml',
-    yml: 'yaml',
-    txt: 'plaintext',
-    java: 'java',
-    c: 'c',
-    cpp: 'cpp',
-    rb: 'ruby',
-  };
-  return languageMap[extension] || null; // Return null if extension not found
 };

@@ -537,10 +537,10 @@ Respond with ONLY the commit message, no additional text.`;
           };
           setChatHistory((prev) => [...prev, pushEntry]);
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         const errorEntry: ChatEntry = {
           type: "assistant",
-          content: `Error during commit and push: ${error.message}`,
+          content: `Error during commit and push: ${error instanceof Error ? error.message : String(error)}`,
           timestamp: new Date(),
         };
         setChatHistory((prev) => [...prev, errorEntry]);
@@ -593,10 +593,10 @@ Respond with ONLY the commit message, no additional text.`;
           toolResult: result,
         };
         setChatHistory((prev) => [...prev, commandEntry]);
-      } catch (error: any) {
+      } catch (error: unknown) {
         const errorEntry: ChatEntry = {
           type: "assistant",
-          content: `Error executing command: ${error.message}`,
+          content: `Error executing command: ${error instanceof Error ? error.message : String(error)}`,
           timestamp: new Date(),
         };
         setChatHistory((prev) => [...prev, errorEntry]);
@@ -664,7 +664,7 @@ Respond with ONLY the commit message, no additional text.`;
                     ? {
                         ...entry,
                         isStreaming: false,
-                        toolCalls: chunk.toolCalls,
+                        ...(chunk.toolCalls ? { toolCalls: chunk.toolCalls } : {}),
                       }
                     : entry
                 )
@@ -686,6 +686,8 @@ Respond with ONLY the commit message, no additional text.`;
 
           case "tool_result":
             if (chunk.toolCall && chunk.toolResult) {
+              const toolResult = chunk.toolResult;
+              const toolCallId = chunk.toolCall.id;
               setChatHistory((prev) =>
                 prev.map((entry) => {
                   if (entry.isStreaming) {
@@ -694,15 +696,15 @@ Respond with ONLY the commit message, no additional text.`;
                   // Update the existing tool_call entry with the result
                   if (
                     entry.type === "tool_call" &&
-                    entry.toolCall?.id === chunk.toolCall?.id
+                    entry.toolCall?.id === toolCallId
                   ) {
                     return {
                       ...entry,
                       type: "tool_result",
-                      content: chunk.toolResult!.success
-                        ? chunk.toolResult!.output || "Success"
-                        : chunk.toolResult!.error || "Error occurred",
-                      toolResult: chunk.toolResult,
+                      content: toolResult.success
+                        ? toolResult.output || "Success"
+                        : toolResult.error || "Error occurred",
+                      toolResult,
                     };
                   }
                   return entry;
@@ -724,10 +726,10 @@ Respond with ONLY the commit message, no additional text.`;
             break;
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       const errorEntry: ChatEntry = {
         type: "assistant",
-        content: `Error: ${error.message}`,
+        content: `Error: ${error instanceof Error ? error.message : String(error)}`,
         timestamp: new Date(),
       };
       setChatHistory((prev) => [...prev, errorEntry]);

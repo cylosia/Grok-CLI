@@ -16,6 +16,7 @@ export interface UserSettings {
 export interface ProjectSettings {
   model?: string;
   mcpServers?: Record<string, unknown>;
+  trustedMcpServers?: Record<string, string>;
 }
 
 const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -48,15 +49,34 @@ export class SettingsManager {
     return SettingsManager.instance;
   }
 
+  private readJsonFile<T extends object>(filePath: string): T | null {
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+
+    const content = fs.readFileSync(filePath, "utf-8");
+    return JSON.parse(content) as T;
+  }
+
+  private writeJsonFile(filePath: string, value: object): void {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+
+    fs.writeFileSync(filePath, JSON.stringify(value, null, 2), { mode: 0o600 });
+  }
+
   // ==================== USER SETTINGS ====================
   public loadUserSettings(): UserSettings {
     try {
-      if (!fs.existsSync(this.userSettingsPath)) {
-        this.saveUserSettings(DEFAULT_USER_SETTINGS);
-        return DEFAULT_USER_SETTINGS;
+      const settings = this.readJsonFile<Partial<UserSettings>>(this.userSettingsPath);
+      if (!settings) {
+        const mergedDefaults = { ...DEFAULT_USER_SETTINGS };
+        this.writeJsonFile(this.userSettingsPath, mergedDefaults);
+        return mergedDefaults;
       }
-      const content = fs.readFileSync(this.userSettingsPath, "utf-8");
-      const settings = JSON.parse(content);
+
       return { ...DEFAULT_USER_SETTINGS, ...settings };
     } catch (error) {
       console.warn(`Failed to load user settings: ${error instanceof Error ? error.message : String(error)}`);
@@ -65,9 +85,8 @@ export class SettingsManager {
   }
 
   public saveUserSettings(settings: Partial<UserSettings>): void {
-    const dir = path.dirname(this.userSettingsPath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(this.userSettingsPath, JSON.stringify({ ...this.loadUserSettings(), ...settings }, null, 2));
+    const current = this.readJsonFile<Partial<UserSettings>>(this.userSettingsPath) || DEFAULT_USER_SETTINGS;
+    this.writeJsonFile(this.userSettingsPath, { ...DEFAULT_USER_SETTINGS, ...current, ...settings });
   }
 
   public getCurrentModel(): string {
@@ -97,12 +116,14 @@ export class SettingsManager {
   // ==================== PROJECT SETTINGS ====================
   public loadProjectSettings(): ProjectSettings {
     try {
-      if (!fs.existsSync(this.projectSettingsPath)) {
-        this.saveProjectSettings(DEFAULT_PROJECT_SETTINGS);
-        return DEFAULT_PROJECT_SETTINGS;
+      const settings = this.readJsonFile<Partial<ProjectSettings>>(this.projectSettingsPath);
+      if (!settings) {
+        const mergedDefaults = { ...DEFAULT_PROJECT_SETTINGS };
+        this.writeJsonFile(this.projectSettingsPath, mergedDefaults);
+        return mergedDefaults;
       }
-      const content = fs.readFileSync(this.projectSettingsPath, "utf-8");
-      return { ...DEFAULT_PROJECT_SETTINGS, ...JSON.parse(content) };
+
+      return { ...DEFAULT_PROJECT_SETTINGS, ...settings };
     } catch (error) {
       console.warn(`Failed to load project settings: ${error instanceof Error ? error.message : String(error)}`);
       return DEFAULT_PROJECT_SETTINGS;
@@ -110,9 +131,8 @@ export class SettingsManager {
   }
 
   public saveProjectSettings(settings: Partial<ProjectSettings>): void {
-    const dir = path.dirname(this.projectSettingsPath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(this.projectSettingsPath, JSON.stringify({ ...this.loadProjectSettings(), ...settings }, null, 2));
+    const current = this.readJsonFile<Partial<ProjectSettings>>(this.projectSettingsPath) || DEFAULT_PROJECT_SETTINGS;
+    this.writeJsonFile(this.projectSettingsPath, { ...DEFAULT_PROJECT_SETTINGS, ...current, ...settings });
   }
 
   public updateProjectSetting<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]): void {

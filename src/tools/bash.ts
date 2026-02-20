@@ -16,7 +16,12 @@ const MAX_OUTPUT_BYTES = 1_000_000;
 export class BashTool {
   private workspaceRoot: string = process.cwd();
   private currentDirectory: string = process.cwd();
+  private canonicalWorkspaceRootPromise: Promise<string>;
   private confirmationService = ConfirmationService.getInstance();
+
+  constructor() {
+    this.canonicalWorkspaceRootPromise = fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
+  }
 
   async execute(command: string, timeout = 30000): Promise<ToolResult> {
     const tokens = this.tokenize(command.trim());
@@ -61,6 +66,11 @@ export class BashTool {
         return { success: false, error: `Command is not allowed: ${command}` };
       }
 
+      const argsValidation = await this.validateArgs(command, args);
+      if (!argsValidation.success) {
+        return argsValidation;
+      }
+
       const sessionFlags = this.confirmationService.getSessionFlags();
       if (!sessionFlags.bashCommands && !sessionFlags.allOperations) {
         const confirmationResult = await this.confirmationService.requestConfirmation(
@@ -84,8 +94,8 @@ export class BashTool {
       const result = await this.runCommand(command, args, timeout);
       return {
         success: result.code === 0,
-        output: result.output || undefined,
-        error: result.code === 0 ? undefined : result.output || `Command failed with exit code ${result.code}`,
+        ...(result.output ? { output: result.output } : {}),
+        ...(result.code !== 0 ? { error: result.output || `Command failed with exit code ${result.code}` } : {}),
       };
     } catch (error) {
       return {
@@ -152,11 +162,12 @@ export class BashTool {
   }
 
   private async changeDirectory(newDir: string): Promise<ToolResult> {
+    const workspaceRoot = await this.canonicalWorkspaceRootPromise;
     const target = path.resolve(this.currentDirectory, newDir);
-    const rootPrefix = this.workspaceRoot.endsWith('/')
-      ? this.workspaceRoot
-      : `${this.workspaceRoot}/`;
-    if (target !== this.workspaceRoot && !target.startsWith(rootPrefix)) {
+    const rootPrefix = workspaceRoot.endsWith('/')
+      ? workspaceRoot
+      : `${workspaceRoot}/`;
+    if (target !== workspaceRoot && !target.startsWith(rootPrefix)) {
       return {
         success: false,
         error: `Cannot change directory outside workspace root: ${newDir}`,
@@ -173,8 +184,39 @@ export class BashTool {
       return { success: false, error: `Cannot change directory: not a directory: ${newDir}` };
     }
 
-    this.currentDirectory = target;
+    const canonicalTarget = await fs.realpath(target);
+    if (canonicalTarget !== workspaceRoot && !canonicalTarget.startsWith(rootPrefix)) {
+      return {
+        success: false,
+        error: `Cannot change directory outside workspace root: ${newDir}`,
+      };
+    }
+
+    this.currentDirectory = canonicalTarget;
     return { success: true, output: `Changed directory to: ${this.currentDirectory}` };
+  }
+
+  private async validateArgs(command: string, args: string[]): Promise<ToolResult> {
+    const pathArgCommands = new Set(['ls', 'cat', 'mkdir', 'touch', 'find', 'rg', 'grep']);
+    if (!pathArgCommands.has(command)) {
+      return { success: true };
+    }
+
+    for (const arg of args) {
+      if (!arg || arg.startsWith('-')) {
+        continue;
+      }
+
+      if (arg.includes('\0')) {
+        return { success: false, error: 'Command argument contains null byte' };
+      }
+
+      if (path.isAbsolute(arg) || arg.split('/').includes('..')) {
+        return { success: false, error: `Path argument is not allowed outside workspace: ${arg}` };
+      }
+    }
+
+    return { success: true };
   }
 
   private tokenize(command: string): string[] {

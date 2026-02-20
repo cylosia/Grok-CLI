@@ -22,8 +22,8 @@ export interface MCPTransport {
 }
 
 export class StdioTransport implements MCPTransport {
-  private transport?: StdioClientTransport;
-  private process?: ChildProcess;
+  private transport: StdioClientTransport | null = null;
+  private process: ChildProcess | null = null;
 
   constructor(private config: TransportConfig) {
     if (!config.command) {
@@ -64,12 +64,12 @@ export class StdioTransport implements MCPTransport {
   async disconnect(): Promise<void> {
     if (this.transport) {
       await this.transport.close();
-      this.transport = undefined;
+      this.transport = null;
     }
 
     if (this.process) {
       this.process.kill();
-      this.process = undefined;
+      this.process = null;
     }
   }
 
@@ -79,7 +79,7 @@ export class StdioTransport implements MCPTransport {
 }
 
 export class HttpTransport extends EventEmitter implements MCPTransport {
-  private client?: AxiosInstance;
+  private client: AxiosInstance | null = null;
   private connected = false;
 
   constructor(private config: TransportConfig) {
@@ -90,18 +90,19 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
   }
 
   async connect(): Promise<Transport> {
-    this.client = axios.create({
-      baseURL: this.config.url,
+    const client = axios.create({
+      ...(this.config.url ? { baseURL: this.config.url } : {}),
       timeout: 10_000,
       headers: {
         'Content-Type': 'application/json',
         ...this.config.headers
       }
     });
+    this.client = client;
 
     // Test connection
     try {
-      await this.client.get('/health');
+      await client.get('/health');
       this.connected = true;
     } catch (error) {
       this.connected = false;
@@ -111,12 +112,12 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
       });
     }
 
-    return new HttpClientTransport(this.client);
+    return new HttpClientTransport(client);
   }
 
   async disconnect(): Promise<void> {
     this.connected = false;
-    this.client = undefined;
+    this.client = null;
   }
 
   getType(): TransportType {

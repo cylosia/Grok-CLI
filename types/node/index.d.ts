@@ -17,6 +17,14 @@ declare const console: {
   error: (...args: unknown[]) => void;
 };
 declare function setImmediate(callback: (...args: unknown[]) => void): void;
+declare function setTimeout(callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]): NodeJS.Timeout;
+declare function clearTimeout(timeoutId: NodeJS.Timeout | undefined): void;
+declare function setInterval(callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]): NodeJS.Timeout;
+declare function clearInterval(intervalId: NodeJS.Timeout | undefined): void;
+
+declare namespace NodeJS {
+  type Timeout = { ref(): Timeout; unref(): Timeout };
+}
 
 declare class AbortSignal {}
 declare class AbortController {
@@ -60,14 +68,22 @@ declare module "util" {
 declare module "fs" {
   export function existsSync(path: string): boolean;
   export function readFileSync(path: string, encoding: string): string;
-  export function writeFileSync(path: string, data: string): void;
-  export function mkdirSync(path: string, options?: { recursive?: boolean }): void;
+  export function writeFileSync(path: string, data: string, options?: { mode?: number }): void;
+  export function mkdirSync(path: string, options?: { recursive?: boolean; mode?: number }): void;
 }
 
 declare module "path" {
   export function join(...parts: string[]): string;
   export function dirname(path: string): string;
   export function resolve(...parts: string[]): string;
+  export function isAbsolute(path: string): boolean;
+}
+
+declare module "crypto" {
+  export function createHash(algorithm: string): {
+    update(data: string): { digest(encoding: "hex"): string };
+    digest(encoding: "hex"): string;
+  };
 }
 
 declare module "os" {

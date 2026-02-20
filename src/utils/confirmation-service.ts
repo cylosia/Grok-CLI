@@ -108,11 +108,11 @@ export class ConfirmationService extends EventEmitter {
   }
 
   confirmOperation(confirmed: boolean, dontAskAgain?: boolean, requestId?: string): void {
-    this.resolveRequest({ confirmed, dontAskAgain }, requestId);
+    this.resolveRequest({ confirmed, ...(typeof dontAskAgain === "boolean" ? { dontAskAgain } : {}) }, requestId);
   }
 
   rejectOperation(feedback?: string, requestId?: string): void {
-    this.resolveRequest({ confirmed: false, feedback }, requestId);
+    this.resolveRequest({ confirmed: false, ...(typeof feedback === "string" ? { feedback } : {}) }, requestId);
   }
 
   private async openInVSCode(filename: string): Promise<void> {
