@@ -2,9 +2,7 @@ import { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import { getMCPManager } from "../../grok/tools.js";
 
-interface MCPStatusProps {}
-
-export function MCPStatus({}: MCPStatusProps) {
+export function MCPStatus() {
   const [connectedServers, setConnectedServers] = useState<string[]>([]);
 
   useEffect(() => {
@@ -13,7 +11,7 @@ export function MCPStatus({}: MCPStatusProps) {
         const manager = getMCPManager();
         const servers = manager.getServers();
         setConnectedServers(servers);
-      } catch (error) {
+      } catch (_error) {
         // MCP manager not initialized yet
         setConnectedServers([]);
       }

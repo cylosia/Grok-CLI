@@ -60,7 +60,7 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
         const manager = getSettingsManager();
         manager.updateUserSetting('apiKey', apiKey);
         console.log(`\n✅ API key validated and loaded for this session`);
-      } catch (error) {
+      } catch (_error) {
         console.log('\n⚠️ Could not persist API key session state');
         console.log('API key set for current session only');
       }

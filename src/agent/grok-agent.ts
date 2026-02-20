@@ -16,6 +16,21 @@ import { loadCustomInstructions } from "../utils/custom-instructions.js";
 import { getSettingsManager } from "../utils/settings-manager.js";
 import { AgentSupervisor, TaskResult } from "./supervisor.js";
 
+
+const MAX_TOOL_ARGS_BYTES = 100_000;
+
+function parseToolArgs(argsRaw: string): Record<string, unknown> {
+  if (argsRaw.length > MAX_TOOL_ARGS_BYTES) {
+    throw new Error(`Tool arguments exceed ${MAX_TOOL_ARGS_BYTES} bytes`);
+  }
+
+  const parsed = JSON.parse(argsRaw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Tool arguments must be a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
 export interface ChatEntry {
   type: "user" | "assistant" | "tool_result" | "tool_call";
   content: string;
@@ -264,7 +279,7 @@ export class GrokAgent extends EventEmitter {
   private async executeTool(toolCall: GrokToolCall): Promise<ToolResult> {
     try {
       const argsRaw = toolCall.function.arguments || "{}";
-      const args = JSON.parse(argsRaw) as Record<string, unknown>;
+      const args = parseToolArgs(argsRaw);
 
       switch (toolCall.function.name) {
         case "view_file":

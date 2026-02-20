@@ -6,6 +6,22 @@ import { logger } from "./logger.js";
 
 const SETTINGS_VERSION = 4;
 const MAX_SETTINGS_FILE_BYTES = 1_000_000;
+const BLOCKED_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function toSafeObjectRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") {
+    return Object.create(null) as Record<string, unknown>;
+  }
+
+  const output = Object.create(null) as Record<string, unknown>;
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (!BLOCKED_OBJECT_KEYS.has(key)) {
+      output[key] = entry;
+    }
+  }
+  return output;
+}
+
 
 export interface UserSettings {
   apiKey?: string;
@@ -64,10 +80,10 @@ function sanitizeProjectSettings(value: unknown): Partial<ProjectSettings> {
   const record = value as Record<string, unknown>;
   const sanitized: Partial<ProjectSettings> = {};
   if (typeof record.model === "string") sanitized.model = record.model;
-  if (record.mcpServers && typeof record.mcpServers === "object") sanitized.mcpServers = record.mcpServers as Record<string, unknown>;
+  if (record.mcpServers && typeof record.mcpServers === "object") sanitized.mcpServers = toSafeObjectRecord(record.mcpServers);
   if (record.trustedMcpServers && typeof record.trustedMcpServers === "object") {
     sanitized.trustedMcpServers = Object.fromEntries(
-      Object.entries(record.trustedMcpServers as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      Object.entries(toSafeObjectRecord(record.trustedMcpServers)).filter((entry): entry is [string, string] => typeof entry[1] === "string")
     );
   }
   return sanitized;
@@ -165,7 +181,7 @@ export class SettingsManager {
   }
 
   public saveUserSettings(settings: Partial<UserSettings>): void {
-    const current = sanitizeUserSettings(this.readJsonFile(this.userSettingsPath));
+    const current = this.userSettingsCache ? sanitizeUserSettings(this.userSettingsCache) : sanitizeUserSettings(this.readJsonFile(this.userSettingsPath));
     const merged = { ...DEFAULT_USER_SETTINGS, ...current, ...sanitizeUserSettings(settings) };
     if (typeof merged.apiKey === "string") {
       this.sessionApiKey = merged.apiKey;
@@ -199,7 +215,7 @@ export class SettingsManager {
   public updateUserSetting<K extends keyof UserSettings>(key: K, value: UserSettings[K]): void {
     if (key === "apiKey" && typeof value === "string") {
       this.sessionApiKey = value;
-      const current = sanitizeUserSettings(this.readJsonFile(this.userSettingsPath));
+      const current = this.userSettingsCache ? sanitizeUserSettings(this.userSettingsCache) : sanitizeUserSettings(this.readJsonFile(this.userSettingsPath));
       if (typeof current.apiKey === "string") {
         delete current.apiKey;
         this.enqueueWrite(this.userSettingsPath, current);
@@ -240,7 +256,7 @@ export class SettingsManager {
   }
 
   public saveProjectSettings(settings: Partial<ProjectSettings>): void {
-    const current = sanitizeProjectSettings(this.readJsonFile(this.projectSettingsPath));
+    const current = this.projectSettingsCache ? sanitizeProjectSettings(this.projectSettingsCache) : sanitizeProjectSettings(this.readJsonFile(this.projectSettingsPath));
     const merged = { ...DEFAULT_PROJECT_SETTINGS, ...current, ...sanitizeProjectSettings(settings) };
     this.enqueueWrite(this.projectSettingsPath, merged);
     this.projectSettingsCache = merged;

@@ -313,7 +313,8 @@ export class SearchTool {
           if (files.length >= maxResults) break;
 
           const fullPath = path.join(dir, entry.name);
-          const relativePath = fullPath.startsWith(`${this.currentDirectory}/`) ? fullPath.slice(this.currentDirectory.length + 1) : fullPath;
+          const relativePathRaw = path.relative(this.currentDirectory, fullPath);
+          const relativePath = relativePathRaw === "" ? entry.name : relativePathRaw;
 
           // Skip hidden files unless explicitly included
           if (!options.includeHidden && entry.name.startsWith(".")) {

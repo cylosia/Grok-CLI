@@ -46,6 +46,17 @@ export function asMCPServerName(value: string): MCPServerName {
   return value as MCPServerName;
 }
 
+const MCP_SERVER_NAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
+const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+export function parseMCPServerName(value: string): MCPServerName | null {
+  if (!MCP_SERVER_NAME_PATTERN.test(value) || RESERVED_KEYS.has(value)) {
+    return null;
+  }
+  return value as MCPServerName;
+}
+
+
 export function asToolCallId(value: string): ToolCallId {
   return value as ToolCallId;
 }
