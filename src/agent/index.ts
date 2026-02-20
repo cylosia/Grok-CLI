@@ -80,7 +80,10 @@ export class Agent {
       return this.getHelp();
     }
     
-    return this.bash.execute(trimmedInput);
+    return {
+      success: false,
+      error: 'Unknown command. Use `help` to see available commands.'
+    };
   }
 
   private parseViewCommand(input: string): { path: string; range?: [number, number] } {

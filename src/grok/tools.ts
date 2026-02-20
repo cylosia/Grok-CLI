@@ -298,44 +298,13 @@ export function getMCPManager(): MCPManager {
 export async function initializeMCPServers(): Promise<void> {
   const manager = getMCPManager();
   const config = loadMCPConfig();
-  
-  // Store original stderr.write
-  const originalStderrWrite = process.stderr.write;
-  
-  // Temporarily suppress stderr to hide verbose MCP connection logs
-  process.stderr.write = function(chunk: any, encoding?: any, callback?: any): boolean {
-    // Filter out mcp-remote verbose logs
-    const chunkStr = chunk.toString();
-    if (chunkStr.includes('[') && (
-        chunkStr.includes('Using existing client port') ||
-        chunkStr.includes('Connecting to remote server') ||
-        chunkStr.includes('Using transport strategy') ||
-        chunkStr.includes('Connected to remote server') ||
-        chunkStr.includes('Local STDIO server running') ||
-        chunkStr.includes('Proxy established successfully') ||
-        chunkStr.includes('Local→Remote') ||
-        chunkStr.includes('Remote→Local')
-      )) {
-      // Suppress these verbose logs
-      if (callback) callback();
-      return true;
+
+  for (const serverConfig of config.servers) {
+    try {
+      await manager.addServer(serverConfig);
+    } catch (error) {
+      console.warn(`Failed to initialize MCP server ${serverConfig.name}:`, error);
     }
-    
-    // Allow other stderr output
-    return originalStderrWrite.call(this, chunk, encoding, callback);
-  };
-  
-  try {
-    for (const serverConfig of config.servers) {
-      try {
-        await manager.addServer(serverConfig);
-      } catch (error) {
-        console.warn(`Failed to initialize MCP server ${serverConfig.name}:`, error);
-      }
-    }
-  } finally {
-    // Restore original stderr.write
-    process.stderr.write = originalStderrWrite;
   }
 }
 

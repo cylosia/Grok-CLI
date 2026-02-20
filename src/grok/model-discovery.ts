@@ -1,3 +1,4 @@
+import axios from "axios";
 import { GrokClient } from "./client.js";
 
 export interface ModelOption {
@@ -10,14 +11,13 @@ export async function discoverModels(apiKey: string, baseURL?: string): Promise<
   const client = new GrokClient(apiKey, undefined, baseURL);
 
   try {
-    const response = await client.listModels();
-    return response.data.map((m: any) => ({
+    const models = await client.listModels();
+    return models.map((m) => ({
       id: m.id,
       name: m.id,
-      provider: "xai"
+      provider: "xai",
     }));
   } catch {
-    // Fallback to static list
     return [
       { id: "grok-420", name: "Grok 4.20", provider: "xai" },
       { id: "grok-420-heavy", name: "Grok 4.20 Heavy", provider: "xai" },
@@ -25,7 +25,19 @@ export async function discoverModels(apiKey: string, baseURL?: string): Promise<
   }
 }
 
-export async function detectOllamaModels(): Promise<ModelOption[]> {
-  // Placeholder — full implementation coming in Phase 0 final PR
-  return [];
+export async function detectOllamaModels(baseURL = "http://127.0.0.1:11434"): Promise<ModelOption[]> {
+  try {
+    const response = await axios.get<{ models: Array<{ name: string }> }>(`${baseURL}/api/tags`, {
+      timeout: 2000,
+    });
+
+    const models = response.data.models || [];
+    return models.map((m) => ({
+      id: m.name,
+      name: m.name,
+      provider: "ollama",
+    }));
+  } catch {
+    return [];
+  }
 }
