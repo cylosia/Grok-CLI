@@ -1,8 +1,8 @@
-import { exec } from "child_process";
+import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import { EventEmitter } from "events";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface ConfirmationOptions {
   operation: string;
@@ -107,16 +107,25 @@ export class ConfirmationService extends EventEmitter {
   }
 
   private async openInVSCode(filename: string): Promise<void> {
-    // Try different VS Code commands
     const commands = ["code", "code-insiders", "codium"];
 
     for (const cmd of commands) {
       try {
-        await execAsync(`which ${cmd}`);
-        await execAsync(`${cmd} "${filename}"`);
+        await execFileAsync("which", [cmd]);
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn(cmd, [filename], {
+            stdio: "ignore",
+            detached: true,
+            shell: false,
+          });
+
+          child.on("error", reject);
+          child.unref();
+          resolve();
+        });
+
         return;
-      } catch (error) {
-        // Continue to next command
+      } catch {
         continue;
       }
     }

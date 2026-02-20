@@ -1,11 +1,24 @@
 import { ToolResult } from '../types/index.js';
 
-interface TodoItem {
+export type TodoStatus = 'pending' | 'in_progress' | 'completed';
+export type TodoPriority = 'high' | 'medium' | 'low';
+
+export interface TodoItem {
   id: string;
   content: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  priority: 'high' | 'medium' | 'low';
+  status: TodoStatus;
+  priority: TodoPriority;
 }
+
+export interface TodoUpdate {
+  id: string;
+  status?: TodoStatus;
+  content?: string;
+  priority?: TodoPriority;
+}
+
+const TODO_STATUSES: ReadonlyArray<TodoStatus> = ['pending', 'in_progress', 'completed'];
+const TODO_PRIORITIES: ReadonlyArray<TodoPriority> = ['high', 'medium', 'low'];
 
 export class TodoTool {
   private todos: TodoItem[] = [];
@@ -15,7 +28,7 @@ export class TodoTool {
       return 'No todos created yet';
     }
 
-    const getCheckbox = (status: string): string => {
+    const getCheckbox = (status: TodoStatus): string => {
       switch (status) {
         case 'completed':
           return '●';
@@ -23,21 +36,17 @@ export class TodoTool {
           return '◐';
         case 'pending':
           return '○';
-        default:
-          return '○';
       }
     };
 
-    const getStatusColor = (status: string): string => {
+    const getStatusColor = (status: TodoStatus): string => {
       switch (status) {
         case 'completed':
-          return '\x1b[32m'; // Green
+          return '\x1b[32m';
         case 'in_progress':
-          return '\x1b[36m'; // Cyan
+          return '\x1b[36m';
         case 'pending':
-          return '\x1b[37m'; // White/default
-        default:
-          return '\x1b[0m'; // Reset
+          return '\x1b[37m';
       }
     };
 
@@ -49,7 +58,7 @@ export class TodoTool {
       const statusColor = getStatusColor(todo.status);
       const strikethrough = todo.status === 'completed' ? '\x1b[9m' : '';
       const indent = index === 0 ? '' : '  ';
-      
+
       output += `${indent}${statusColor}${strikethrough}${checkbox} ${todo.content}${reset}\n`;
     });
 
@@ -58,7 +67,6 @@ export class TodoTool {
 
   async createTodoList(todos: TodoItem[]): Promise<ToolResult> {
     try {
-      // Validate todos
       for (const todo of todos) {
         if (!todo.id || !todo.content || !todo.status || !todo.priority) {
           return {
@@ -67,14 +75,14 @@ export class TodoTool {
           };
         }
 
-        if (!['pending', 'in_progress', 'completed'].includes(todo.status)) {
+        if (!TODO_STATUSES.includes(todo.status)) {
           return {
             success: false,
             error: `Invalid status: ${todo.status}. Must be pending, in_progress, or completed`
           };
         }
 
-        if (!['high', 'medium', 'low'].includes(todo.priority)) {
+        if (!TODO_PRIORITIES.includes(todo.priority)) {
           return {
             success: false,
             error: `Invalid priority: ${todo.priority}. Must be high, medium, or low`
@@ -83,7 +91,7 @@ export class TodoTool {
       }
 
       this.todos = todos;
-      
+
       return {
         success: true,
         output: this.formatTodoList()
@@ -96,13 +104,11 @@ export class TodoTool {
     }
   }
 
-  async updateTodoList(updates: { id: string; status?: string; content?: string; priority?: string }[]): Promise<ToolResult> {
+  async updateTodoList(updates: TodoUpdate[]): Promise<ToolResult> {
     try {
-      const updatedIds: string[] = [];
-
       for (const update of updates) {
         const todoIndex = this.todos.findIndex(t => t.id === update.id);
-        
+
         if (todoIndex === -1) {
           return {
             success: false,
@@ -112,25 +118,23 @@ export class TodoTool {
 
         const todo = this.todos[todoIndex];
 
-        if (update.status && !['pending', 'in_progress', 'completed'].includes(update.status)) {
+        if (update.status && !TODO_STATUSES.includes(update.status)) {
           return {
             success: false,
             error: `Invalid status: ${update.status}. Must be pending, in_progress, or completed`
           };
         }
 
-        if (update.priority && !['high', 'medium', 'low'].includes(update.priority)) {
+        if (update.priority && !TODO_PRIORITIES.includes(update.priority)) {
           return {
             success: false,
             error: `Invalid priority: ${update.priority}. Must be high, medium, or low`
           };
         }
 
-        if (update.status) todo.status = update.status as any;
+        if (update.status) todo.status = update.status;
         if (update.content) todo.content = update.content;
-        if (update.priority) todo.priority = update.priority as any;
-
-        updatedIds.push(update.id);
+        if (update.priority) todo.priority = update.priority;
       }
 
       return {

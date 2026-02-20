@@ -1,7 +1,11 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { createTransport, MCPTransport, TransportType } from "./transports.js";
+import { loadMCPConfig } from "./config.js";
+
 export interface MCPServerConfig {
   name: string;
   transport: {
-    type: 'stdio' | 'http' | 'sse' | 'streamable_http';
+    type: TransportType;
     command?: string;
     args?: string[];
     url?: string;
@@ -15,16 +19,114 @@ export interface MCPServerConfig {
 export interface MCPTool {
   name: string;
   description: string;
-  inputSchema: any;
+  inputSchema: Record<string, unknown>;
   serverName: string;
 }
 
+interface ConnectedServer {
+  config: MCPServerConfig;
+  transport: MCPTransport;
+  client: Client;
+  tools: MCPTool[];
+}
+
 export class MCPManager {
-  async addServer(config: MCPServerConfig): Promise<void> {}
-  async removeServer(name: string): Promise<void> {}
-  getTools(): MCPTool[] { return []; }
-  getServers(): string[] { return []; }
-  getTransportType(name: string): string | undefined { return undefined; }
-  ensureServersInitialized(): Promise<void> { return Promise.resolve(); }
-  async callTool(name: string, args: any): Promise<any> { return { content: [] }; }
+  private servers = new Map<string, ConnectedServer>();
+  private initialized = false;
+
+  async addServer(config: MCPServerConfig): Promise<void> {
+    if (this.servers.has(config.name)) {
+      return;
+    }
+
+    const transport = createTransport(config.transport);
+    const sdkTransport = await transport.connect();
+    const client = new Client(
+      { name: "grok-cli", version: "2.0.0" },
+      { capabilities: {} }
+    );
+
+    await client.connect(sdkTransport);
+
+    const listed = await client.listTools();
+    const tools: MCPTool[] = listed.tools.map((tool) => ({
+      name: `mcp__${config.name}__${tool.name}`,
+      description: tool.description || "MCP tool",
+      inputSchema: (tool.inputSchema as Record<string, unknown> | undefined) || {
+        type: "object",
+        properties: {},
+      },
+      serverName: config.name,
+    }));
+
+    this.servers.set(config.name, {
+      config,
+      transport,
+      client,
+      tools,
+    });
+  }
+
+  async removeServer(name: string): Promise<void> {
+    const server = this.servers.get(name);
+    if (!server) {
+      return;
+    }
+
+    await server.client.close();
+    await server.transport.disconnect();
+    this.servers.delete(name);
+  }
+
+  getTools(): MCPTool[] {
+    return [...this.servers.values()].flatMap((server) => server.tools);
+  }
+
+  getServers(): string[] {
+    return [...this.servers.keys()];
+  }
+
+  getTransportType(name: string): string | undefined {
+    return this.servers.get(name)?.transport.getType();
+  }
+
+  async ensureServersInitialized(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    const config = loadMCPConfig();
+    for (const server of config.servers) {
+      try {
+        await this.addServer(server);
+      } catch {
+        // Do not fail full initialization for a single bad server.
+      }
+    }
+    this.initialized = true;
+  }
+
+  async callTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown[] }> {
+    const parts = name.split("__");
+    if (parts.length < 3 || parts[0] !== "mcp") {
+      throw new Error(`Invalid MCP tool name: ${name}`);
+    }
+
+    const serverName = parts[1];
+    const toolName = parts.slice(2).join("__");
+    const server = this.servers.get(serverName);
+
+    if (!server) {
+      throw new Error(`MCP server not connected: ${serverName}`);
+    }
+
+    const result = await server.client.callTool({
+      name: toolName,
+      arguments: args,
+    });
+
+    return {
+      content: Array.isArray(result.content) ? result.content : [],
+    };
+  }
 }
