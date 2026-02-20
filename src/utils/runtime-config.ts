@@ -15,12 +15,13 @@ function readEnvString(key: string): string | undefined {
 
 export function loadRuntimeConfig(): RuntimeConfig {
   const grokApiKey = readEnvString("GROK_API_KEY");
+  const grokBaseUrl = readEnvString("GROK_BASE_URL");
   if (!grokApiKey) {
     throw new Error("GROK_API_KEY is required");
   }
 
   return {
     grokApiKey,
-    grokBaseUrl: readEnvString("GROK_BASE_URL"),
+    ...(grokBaseUrl ? { grokBaseUrl } : {}),
   };
 }

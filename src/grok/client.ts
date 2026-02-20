@@ -68,9 +68,9 @@ export class GrokClient {
         {
           model: this.currentModel,
           messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-          tools: options.tools as OpenAI.Chat.Completions.ChatCompletionTool[] | undefined,
-          temperature: options.temperature,
-          max_tokens: options.maxTokens,
+          ...(options.tools ? { tools: options.tools as OpenAI.Chat.Completions.ChatCompletionTool[] } : {}),
+          ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
+          ...(typeof options.maxTokens === "number" ? { max_tokens: options.maxTokens } : {}),
         },
         { signal: options.signal }
       )
@@ -84,7 +84,7 @@ export class GrokClient {
     return {
       role: message.role as GrokRole,
       content: typeof message.content === "string" ? message.content : null,
-      tool_calls: message.tool_calls as GrokToolCall[] | undefined,
+      ...(message.tool_calls ? { tool_calls: message.tool_calls as GrokToolCall[] } : {}),
     };
   }
 
@@ -97,9 +97,9 @@ export class GrokClient {
         {
           model: this.currentModel,
           messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-          tools: options.tools as OpenAI.Chat.Completions.ChatCompletionTool[] | undefined,
-          temperature: options.temperature,
-          max_tokens: options.maxTokens,
+          ...(options.tools ? { tools: options.tools as OpenAI.Chat.Completions.ChatCompletionTool[] } : {}),
+          ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
+          ...(typeof options.maxTokens === "number" ? { max_tokens: options.maxTokens } : {}),
           stream: true,
         },
         { signal: options.signal }

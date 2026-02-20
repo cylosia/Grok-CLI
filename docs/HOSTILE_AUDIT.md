@@ -3,194 +3,159 @@
 ## Scope and verification protocol
 
 ### Phase 1 — Systematic decomposition
-- Enumerated repository files and inspected high-risk execution surfaces (`tools`, `mcp`, `agent`, `hooks`, runtime/settings).
-- Built and typechecked the code under strict TypeScript mode.
-- Ran targeted pattern scans for unsafe casts, `any`, command execution, env handling, and error suppression.
+- Enumerated every tracked source file with `rg --files`.
+- Performed strict TypeScript adversarial compile checks with both repository config and strict overlay.
+- Performed targeted static scans for:
+  - shell/process execution surfaces,
+  - unsafe typing (`any`, optional-property unsoundness),
+  - env/secret handling,
+  - async boundaries (`Promise` orchestration and silent catches),
+  - MCP auto-execution paths.
 
 ### Phase 2 — Adversarial re-review
-- Re-read "obvious" paths and all major `catch`/fallback branches.
-- Re-reviewed configuration files (`tsconfig.json`, `package.json`) for production-hardening gaps.
-- Revalidated findings against exact line locations.
+- Re-reviewed “obvious” files that usually get trusted: `settings-manager`, `mcp/*`, `bash` tool, runtime entrypoints, and config files.
+- Re-walked catch/fallback branches and startup paths.
+- Revalidated each issue with at least two methods:
+  1) direct source inspection with line-level evidence, and
+  2) command-based verification (strict compile or runtime repro where feasible).
 
 ### Commands executed
 - `rg --files`
 - `npm run -s typecheck`
-- `npm run -s build`
-- `npm audit --json` *(blocked by registry 403 in this environment)*
-- `rg -n "as unknown as|catch \(error: any\)|process\.env|Promise\.all|--follow|Object\.values\(|ensureServersInitialized\(\)\.catch|dangerouslySetInnerHTML|innerHTML" src tsconfig.json package.json`
+- `npx tsc --noEmit -p tsconfig.strict.json`
+- `rg -n "(SELECT|INSERT|UPDATE|DELETE|query\(|pg\.|postgres|pool|Client\())" src`
+- `rg -n "(exec\(|spawn\(|execSync|spawnSync|child_process|shell: true|eval\())" src`
+- `rg -n "as unknown as|: any\b|catch \(error: any\)|Promise\.all\(|process\.env" src tsconfig.json package.json`
 - `wc -l src/**/*.ts src/**/*.tsx | sort -nr | head -n 20`
+- `HOME=$(mktemp -d) npx -y tsx -e "import { getSettingsManager } from './src/utils/settings-manager.ts'; console.log(getSettingsManager().loadUserSettings());"`
 
 ---
 
 ## PostgreSQL/SQL surgery status
-No PostgreSQL access layer is present in this codebase (no `pg` driver, ORM, migrations, or SQL text found). SQL-specific findings are **N/A by absence**. If production relies on PostgreSQL elsewhere, this repository has no enforceable DB integrity/security controls.
+No PostgreSQL client, ORM, migration framework, or SQL query text exists in this repository. SQL-specific controls (transactions, indexes, migration safety, FK/constraint strategy) are **not implemented in this codebase** and therefore cannot be verified here.
 
 ---
 
 ## 1) Critical (P0)
 
 ### P0-1
-- **File:Line:Column**: `src/mcp/config.ts:11:20`
-- **Category**: Type | Security | Architecture
-- **Violation**: Untrusted project JSON is unsafely cast (`as MCPServerConfig[]`) and then executed as MCP transport config.
-- **Concrete fix**: Replace cast with runtime schema validation (e.g., strict Zod schema per transport type) before loading/saving; reject unknown keys.
-- **Risk if not fixed**: Tampered `.grok/settings.json` can inject arbitrary stdio command configs at startup.
+- **File:Line:Column**: `src/utils/settings-manager.ts:55:9`, `src/utils/settings-manager.ts:70:5`
+- **Category**: Type | Resilience | Architecture
+- **Violation**: Infinite recursion in first-run settings bootstrap. `loadUserSettings()` calls `saveUserSettings()` when file does not exist; `saveUserSettings()` calls `loadUserSettings()` before writing the file.
+- **Concrete fix**: Split “read existing settings” from “persist settings”. In `saveUserSettings`, do **not** call `loadUserSettings()`; instead merge against defaults or a non-recursive `readUserSettingsIfExists()` helper.
+- **Risk if not fixed**: First-run startup path can hit stack overflow / repeated exception path, causing reliability failures before CLI initialization.
 
 ### P0-2
-- **File:Line:Column**: `src/tools/text-editor.ts:732:3`
-- **Category**: Security | Filesystem isolation
-- **Violation**: `resolveSafePath` relies on lexical `path.resolve + startsWith` checks only; symlink canonicalization is missing.
-- **Concrete fix**: Canonicalize both workspace root and target (`fs.realpath`) and enforce canonical prefix checks before every read/write/delete.
-- **Risk if not fixed**: Symlink traversal can escape workspace boundary and modify/delete arbitrary host files.
+- **File:Line:Column**: `src/utils/settings-manager.ts:101:9`, `src/utils/settings-manager.ts:115:5`
+- **Category**: Type | Resilience | Architecture
+- **Violation**: Same infinite recursion bug for project settings (`loadProjectSettings()` ↔ `saveProjectSettings()`).
+- **Concrete fix**: Apply the same non-recursive persistence split for project settings.
+- **Risk if not fixed**: First-run project settings bootstrap is unstable and can fail during command startup in fresh repos.
 
 ---
 
 ## 2) High (P1)
 
 ### P1-1
-- **File:Line:Column**: `src/tools/text-editor.ts:404:13`
-- **Category**: Security | Data integrity
-- **Violation**: `undoEdit()` reads/writes `lastEdit.path` directly, bypassing `resolveSafePath` entirely.
-- **Concrete fix**: Store only canonical safe paths in edit history and re-run `resolveSafePath` (realpath-aware) before undo operations.
-- **Risk if not fixed**: History poisoning can cause out-of-bound file mutation/deletion.
+- **File:Line:Column**: `src/mcp/client.ts:103:5`, `src/mcp/transports.ts:55:7`
+- **Category**: Security | Architecture
+- **Violation**: Project-local `.grok/settings.json` controls MCP server command execution path at runtime; commands are executed without trust boundary (repository trust prompt/allowlist).
+- **Concrete fix**: Add repository trust model: require explicit one-time approval per server command hash/path before `transport.connect()` for `stdio` servers.
+- **Risk if not fixed**: Opening an untrusted repository can lead to arbitrary local code execution via malicious MCP config.
 
 ### P1-2
-- **File:Line:Column**: `src/mcp/transports.ts:36:7`
-- **Category**: Security | Secret management
-- **Violation**: Full parent `process.env` is forwarded to child MCP processes.
-- **Concrete fix**: Use allowlisted environment propagation only (`PATH`, locale, and explicit required vars).
-- **Risk if not fixed**: Credential/token exfiltration by untrusted MCP binaries.
+- **File:Line:Column**: `src/tools/bash.ts:91:7`, `src/tools/bash.ts:100:21`, `src/tools/bash.ts:196:5`
+- **Category**: Security
+- **Violation**: `executeArgs()` executes allowlisted binaries with unrestricted arguments and no workspace path enforcement. Absolute paths (`ls /`, `cat /etc/passwd`) and traversal are possible.
+- **Concrete fix**: Enforce argument-level path policy: reject absolute paths and `..` escapes unless explicitly permitted; canonicalize each file argument against workspace root.
+- **Risk if not fixed**: Data exfiltration beyond workspace and policy bypass despite command allowlist.
 
 ### P1-3
-- **File:Line:Column**: `src/tools/search.ts:194:9`
-- **Category**: Security | Data exposure
-- **Violation**: Search uses ripgrep `--follow`, traversing symlink targets outside workspace trust boundary.
-- **Concrete fix**: Remove `--follow` by default; gate behind explicit opt-in and canonical root checks.
-- **Risk if not fixed**: Sensitive filesystem discovery and leakage outside repo scope.
+- **File:Line:Column**: `src/tools/bash.ts:156:20`, `src/tools/bash.ts:177:5`
+- **Category**: Security | Filesystem isolation
+- **Violation**: `cd` safety check is lexical only (`path.resolve` + prefix). It does not canonicalize symlinks with `realpath` before updating `currentDirectory`.
+- **Concrete fix**: Canonicalize target with `fs.realpath` and enforce canonical prefix check, mirroring hardened logic used in `text-editor`.
+- **Risk if not fixed**: Symlink-based workspace escape; subsequent command execution can operate outside intended root.
 
 ### P1-4
-- **File:Line:Column**: `src/mcp/client.ts:42:23`
-- **Category**: Resilience | Resource management
-- **Violation**: `addServer` does not cleanup partially initialized resources when `connect/listTools` fails after transport connect.
-- **Concrete fix**: Wrap initialization in `try/finally`; on failure close client and disconnect transport before rethrow.
-- **Risk if not fixed**: Connection/process leaks and gradual stability degradation under repeated failures.
+- **File:Line:Column**: `src/utils/settings-manager.ts:70:5`, `src/utils/settings-manager.ts:115:5`
+- **Category**: Security | Ops
+- **Violation**: Settings files (including API keys) are written without explicit restrictive file mode.
+- **Concrete fix**: Use `fs.writeFileSync(..., { mode: 0o600 })` and verify permissions on load.
+- **Risk if not fixed**: Credential disclosure on shared multi-user systems.
 
 ### P1-5
-- **File:Line:Column**: `src/grok/tools.ts:340:3`
-- **Category**: Async/Concurrency | Observability
-- **Violation**: Fire-and-forget `ensureServersInitialized().catch(() => {})` suppresses initialization failure.
-- **Concrete fix**: Await initialization (or track explicit degraded state) and surface typed status to UI/logs.
-- **Risk if not fixed**: Silent MCP outages and racey behavior under load.
-
-### P1-6
-- **File:Line:Column**: `src/utils/settings-manager.ts:69:5`
-- **Category**: Security | Ops hardening
-- **Violation**: API key persisted in plaintext JSON without explicit restrictive file permissions.
-- **Concrete fix**: Write with mode `0o600`; verify permissions on load; prefer OS keychain where available.
-- **Risk if not fixed**: Secret exposure on multi-user/shared hosts.
-
-### P1-7
-- **File:Line:Column**: `src/ui/components/api-key-input.tsx:51:7`
-- **Category**: Security | UX correctness
-- **Violation**: Claims to "validate" key but only constructs `new GrokAgent(apiKey)` (no auth roundtrip).
-- **Concrete fix**: Perform real auth probe (e.g., `listModels`) before storing key.
-- **Risk if not fixed**: Invalid credentials persisted; latent production auth failures.
+- **File:Line:Column**: `src/mcp/client.ts:111:5`
+- **Category**: Resilience
+- **Violation**: `initialized = true` is set even if every server initialization failed.
+- **Concrete fix**: Track successful server count and only set initialized when at least one init pass succeeded, or allow retries for failed servers.
+- **Risk if not fixed**: Permanent degraded MCP state after transient startup failures, requiring process restart.
 
 ---
 
 ## 3) Medium (P2)
 
 ### P2-1
-- **File:Line:Column**: `src/agent/parallel.ts:20:27`
-- **Category**: Async/Concurrency | Performance
-- **Violation**: Unbounded `Promise.all` on delegated tasks; no concurrency budget, no cancellation propagation.
-- **Concrete fix**: Use bounded executor (`p-limit`) with per-task timeout and `AbortSignal` flow-through.
-- **Risk if not fixed**: Burst workloads can starve resources and degrade responsiveness.
+- **File:Line:Column**: `tsconfig.json:10:5`
+- **Category**: Type
+- **Violation**: `exactOptionalPropertyTypes` disabled in primary build config.
+- **Concrete fix**: Enable `exactOptionalPropertyTypes: true` in the main `tsconfig.json` and enforce in CI.
+- **Risk if not fixed**: Optional-property unsoundness reaches production build path.
 
 ### P2-2
-- **File:Line:Column**: `src/mcp/transports.ts:99:7`
-- **Category**: Resilience
-- **Violation**: HTTP transport marks `connected=true` even when health check fails.
-- **Concrete fix**: Keep disconnected state on failed probe unless explicit fallback probe succeeds.
-- **Risk if not fixed**: False-green health state, harder incident triage.
+- **File:Line:Column**: `src/agent/grok-agent.ts:284:63`, `src/grok/client.ts:68:9`, `src/commands/mcp.ts:88:22`
+- **Category**: Type
+- **Violation**: Strict overlay compilation shows many optional-property mismatches (`undefined` passed where property must be omitted), proving type unsoundness under exact optional semantics.
+- **Concrete fix**: Build payloads using conditional object spread (only include keys when defined) and update interfaces where `undefined` is intentionally allowed.
+- **Risk if not fixed**: Runtime payload/schema drift and brittle API interactions.
 
 ### P2-3
-- **File:Line:Column**: `src/tools/text-editor.ts:398:22`
-- **Category**: Type rigor
-- **Violation**: Non-null assertion (`this.editHistory.pop()!`) in undo path.
-- **Concrete fix**: Replace with explicit guard and typed error return.
-- **Risk if not fixed**: Refactor-sensitive runtime crash.
+- **File:Line:Column**: `src/tools/text-editor.ts:382:14`, `src/hooks/use-input-handler.ts:540:16`, `src/commands/mcp.ts:99:16`
+- **Category**: Type | Error handling
+- **Violation**: Repeated `catch (error: any)` erodes safety and permits unsafe property access on unknown values.
+- **Concrete fix**: Convert to `catch (error: unknown)` and normalize via typed helper (`getErrorMessage(error)` using `instanceof Error`).
+- **Risk if not fixed**: Error-path crashes and loss of structured diagnostics.
 
 ### P2-4
-- **File:Line:Column**: `src/types/globals.d.ts:1:1`
-- **Category**: Type rigor
-- **Violation**: Global timer declarations widened to `unknown`, shadowing Node/browser lib types.
-- **Concrete fix**: Delete custom globals, rely on standard lib typings; if needed use `ReturnType<typeof setTimeout>`.
-- **Risk if not fixed**: Loss of timer type safety and accidental API misuse.
+- **File:Line:Column**: `src/types/globals.d.ts:8:1`
+- **Category**: Type
+- **Violation**: Global timer declarations shadow standard lib signatures and can mask platform typing differences.
+- **Concrete fix**: Remove custom global timer declarations; use standard Node typings and `ReturnType<typeof setTimeout>`.
+- **Risk if not fixed**: Subtle typing conflicts and incorrect assumptions across runtime targets.
 
 ### P2-5
 - **File:Line:Column**: `src/ui/marketplace-ui.tsx:6:41`
-- **Category**: Type rigor
-- **Violation**: `useState<any[]>([])` bypasses compile-time validation for marketplace payload shape.
-- **Concrete fix**: Define `MarketplaceResult` interface and use `useState<MarketplaceResult[]>([])`.
-- **Risk if not fixed**: Runtime rendering crashes from malformed responses.
-
-### P2-6
-- **File:Line:Column**: `src/utils/settings-manager.ts:61:5`
-- **Category**: Resilience | Observability
-- **Violation**: Broad silent catch while loading settings; corruption is swallowed and defaults silently applied.
-- **Concrete fix**: Log structured warning (redacted) and emit explicit "degraded config" state.
-- **Risk if not fixed**: Hidden config loss, difficult root-cause analysis.
-
-### P2-7
-- **File:Line:Column**: `tsconfig.json:10:5`
-- **Category**: Type rigor
-- **Violation**: `exactOptionalPropertyTypes` disabled in primary build profile.
-- **Concrete fix**: Enable in `tsconfig.json` (not only strict overlay) and enforce in CI.
-- **Risk if not fixed**: Optional property unsoundness reaching production build.
-
-### P2-8
-- **File:Line:Column**: `src/index.tsx:7:1`
-- **Category**: Ops | Resilience
-- **Violation**: No SIGTERM/SIGINT graceful shutdown orchestration for active streams/subprocesses.
-- **Concrete fix**: Add signal handlers that abort in-flight operations and drain/close transports before exit.
-- **Risk if not fixed**: Abrupt termination, partial operations, orphan child processes.
+- **Category**: Type | Testability
+- **Violation**: `useState<any[]>([])` bypasses shape validation in UI data handling.
+- **Concrete fix**: Define `MarketplaceItem` interface and replace `any[]` with `MarketplaceItem[]`.
+- **Risk if not fixed**: Runtime UI breakage from malformed payloads.
 
 ---
 
 ## 4) Low (P3)
 
 ### P3-1
-- **File:Line:Column**: `package.json:6:3`
-- **Category**: Testability/Quality
-- **Violation**: No automated `test` script or CI quality gate in package scripts.
-- **Concrete fix**: Add test runner script (`test`) and fail CI on test/type/lint regressions.
-- **Risk if not fixed**: Higher regression probability in security-critical paths.
+- **File:Line:Column**: `src/grok/tools.ts:337:1`
+- **Category**: Architecture
+- **Violation**: Tool registry file is very large and mixes static schema data with runtime MCP orchestration.
+- **Concrete fix**: Split into `base-tools`, `morph-tools`, `mcp-tools` modules with focused responsibilities.
+- **Risk if not fixed**: Review fatigue and higher defect introduction rate in future edits.
 
 ### P3-2
-- **File:Line:Column**: `src/hooks/use-input-handler.ts:555:5`
-- **Category**: Architecture | Security policy
-- **Violation**: UI advertises direct command handling including `rm/mv/cp`, but backend bash policy blocks those commands.
-- **Concrete fix**: Align frontend affordances with backend allowlist or route via explicit privileged workflow.
-- **Risk if not fixed**: User confusion and policy model drift.
-
-### P3-3
-- **File:Line:Column**: `src/tools/text-editor.ts:518:3`
-- **Category**: Performance
-- **Violation**: LCS diff is O(m*n) without file-size guardrails.
-- **Concrete fix**: Add maximum file-size/line-count thresholds and fallback diff strategy.
-- **Risk if not fixed**: Latency spikes and memory pressure on large edits.
+- **File:Line:Column**: `src/tools/text-editor.ts:1:1`
+- **Category**: Architecture
+- **Violation**: `text-editor.ts` is a God-module (>700 LOC) containing path policy, diff logic, edit history, and confirmation flow.
+- **Concrete fix**: Extract path guard, diff engine, and history manager into testable units.
+- **Risk if not fixed**: High regression surface and difficult property-based testing.
 
 ---
 
 ## Immediate production incident ranking (if deployed today)
-1. **P0-1 Unvalidated MCP config execution** (`src/mcp/config.ts`). **Blast radius:** host-level command execution in user context.
-2. **P0-2 Symlink workspace escape** (`src/tools/text-editor.ts`). **Blast radius:** unauthorized file mutation/deletion outside repository.
-3. **P1-2 Env propagation to MCP child** (`src/mcp/transports.ts`). **Blast radius:** credential compromise across all inherited env secrets.
-4. **P1-1 Unsafe undo path bypass** (`src/tools/text-editor.ts`). **Blast radius:** arbitrary file overwrite/remove via poisoned edit history.
-5. **P1-5 Suppressed MCP init failures** (`src/grok/tools.ts`). **Blast radius:** silent core feature outages with poor diagnosability.
+1. **P0-1/P0-2 Recursion bug in settings bootstrapping** (`settings-manager`) — **Blast radius:** startup failures for clean/home-isolated environments; inability to initialize config reliably.
+2. **P1-1 Untrusted MCP command execution path** (`mcp/client` + `mcp/transports`) — **Blast radius:** arbitrary command execution in user context when opening malicious repos.
+3. **P1-2/P1-3 Bash workspace escape** (`tools/bash`) — **Blast radius:** filesystem read access outside repository boundaries through allowed commands.
+4. **P1-4 Plaintext secret file permissions** (`settings-manager`) — **Blast radius:** host-local credential leakage on shared systems.
+5. **P1-5 MCP init marked complete after failures** (`mcp/client`) — **Blast radius:** persistent feature outage after transient startup problems.
 
-## Verification model for findings
-Native multi-subagent execution is unavailable in this runtime. To approximate independent verification, each finding was validated twice:
-1) direct source inspection at line-level, and
-2) adversarial pattern-based re-scan + config/build re-check.
+## Verification note on “subagents”
+True multi-subagent execution is not available in this runtime. To satisfy independent verification intent, each finding was validated through two independent passes: direct line-level source inspection and command-driven adversarial checks/reproduction.

@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { createTransport, MCPTransport, TransportType } from "./transports.js";
-import { loadMCPConfig } from "./config.js";
+import { getTrustedMCPServerFingerprints, loadMCPConfig } from "./config.js";
+import { createHash } from "crypto";
 
 export interface MCPServerConfig {
   name: string;
@@ -34,10 +35,37 @@ export class MCPManager {
   private servers = new Map<string, ConnectedServer>();
   private initialized = false;
 
+  private getServerFingerprint(config: MCPServerConfig): string {
+    const payload = {
+      name: config.name,
+      transport: config.transport,
+      command: config.command,
+      args: config.args,
+    };
+    return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  }
+
+  private ensureTrustedServer(config: MCPServerConfig): void {
+    if (config.transport.type !== "stdio") {
+      return;
+    }
+
+    const trusted = getTrustedMCPServerFingerprints();
+    const expected = trusted[config.name];
+    const fingerprint = this.getServerFingerprint(config);
+    if (!expected || expected !== fingerprint) {
+      throw new Error(
+        `Untrusted MCP server configuration for "${config.name}". Re-add via 'grok mcp add ${config.name} ...' to trust this command.`
+      );
+    }
+  }
+
   async addServer(config: MCPServerConfig): Promise<void> {
     if (this.servers.has(config.name)) {
       return;
     }
+
+    this.ensureTrustedServer(config);
 
     const transport = createTransport(config.transport);
     const client = new Client(
@@ -100,15 +128,17 @@ export class MCPManager {
       return;
     }
 
+    let successfulInitializations = 0;
     const config = loadMCPConfig();
     for (const server of config.servers) {
       try {
         await this.addServer(server);
+        successfulInitializations += 1;
       } catch (error) {
         console.warn(`Failed to initialize MCP server "${server.name}": ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    this.initialized = true;
+    this.initialized = successfulInitializations === config.servers.length;
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown[] }> {

@@ -1,8 +1,18 @@
 import { Command } from 'commander';
-import { addMCPServer, removeMCPServer, loadMCPConfig, PREDEFINED_SERVERS } from '../mcp/config.js';
+import { addMCPServer, removeMCPServer, loadMCPConfig, PREDEFINED_SERVERS, removeTrustedMCPServerFingerprint, setTrustedMCPServerFingerprint } from '../mcp/config.js';
 import { getMCPManager } from '../grok/tools.js';
 import { MCPServerConfig } from '../mcp/client.js';
 import chalk from 'chalk';
+import { createHash } from 'crypto';
+
+function getServerFingerprint(config: MCPServerConfig): string {
+  return createHash('sha256').update(JSON.stringify({
+    name: config.name,
+    transport: config.transport,
+    command: config.command,
+    args: config.args,
+  })).digest('hex');
+}
 
 export function createMCPCommand(): Command {
   const mcpCommand = new Command('mcp');
@@ -24,6 +34,7 @@ export function createMCPCommand(): Command {
         if (PREDEFINED_SERVERS[name]) {
           const config = PREDEFINED_SERVERS[name];
           addMCPServer(config);
+          setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
           console.log(chalk.green(`✓ Added predefined MCP server: ${name}`));
           
           // Try to connect immediately
@@ -73,19 +84,22 @@ export function createMCPCommand(): Command {
           }
         }
 
-        const config = {
+        const transport: MCPServerConfig['transport'] = {
+          type: transportType as 'stdio' | 'http' | 'sse',
+          ...(typeof options.command === 'string' ? { command: options.command } : {}),
+          ...(Array.isArray(options.args) ? { args: options.args } : {}),
+          ...(typeof options.url === 'string' ? { url: options.url } : {}),
+          ...(Object.keys(env).length > 0 ? { env } : {}),
+          ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        };
+
+        const config: MCPServerConfig = {
           name,
-          transport: {
-            type: transportType as 'stdio' | 'http' | 'sse',
-            command: options.command,
-            args: options.args || [],
-            url: options.url,
-            env,
-            headers: Object.keys(headers).length > 0 ? headers : undefined
-          }
+          transport,
         };
 
         addMCPServer(config);
+        setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
         console.log(chalk.green(`✓ Added MCP server: ${name}`));
         
         // Try to connect immediately
@@ -96,8 +110,8 @@ export function createMCPCommand(): Command {
         const tools = manager.getTools().filter(t => t.serverName === name);
         console.log(chalk.blue(`  Available tools: ${tools.length}`));
 
-      } catch (error: any) {
-        console.error(chalk.red(`Error adding MCP server: ${error.message}`));
+      } catch (error: unknown) {
+        console.error(chalk.red(`Error adding MCP server: ${error instanceof Error ? error.message : String(error)}`));
         process.exit(1);
       }
     });
@@ -120,11 +134,11 @@ export function createMCPCommand(): Command {
           name,
           transport: {
             type: 'stdio', // default
-            command: config.command,
-            args: config.args || [],
-            env: config.env || {},
-            url: config.url,
-            headers: config.headers
+            ...(typeof config.command === 'string' ? { command: config.command } : {}),
+            ...(Array.isArray(config.args) ? { args: config.args } : {}),
+            ...(config.env && typeof config.env === 'object' ? { env: config.env } : {}),
+            ...(typeof config.url === 'string' ? { url: config.url } : {}),
+            ...(config.headers && typeof config.headers === 'object' ? { headers: config.headers } : {}),
           }
         };
 
@@ -138,6 +152,7 @@ export function createMCPCommand(): Command {
         }
 
         addMCPServer(serverConfig);
+        setTrustedMCPServerFingerprint(name, getServerFingerprint(serverConfig));
         console.log(chalk.green(`✓ Added MCP server: ${name}`));
         
         // Try to connect immediately
@@ -148,8 +163,8 @@ export function createMCPCommand(): Command {
         const tools = manager.getTools().filter(t => t.serverName === name);
         console.log(chalk.blue(`  Available tools: ${tools.length}`));
 
-      } catch (error: any) {
-        console.error(chalk.red(`Error adding MCP server: ${error.message}`));
+      } catch (error: unknown) {
+        console.error(chalk.red(`Error adding MCP server: ${error instanceof Error ? error.message : String(error)}`));
         process.exit(1);
       }
     });
@@ -163,9 +178,10 @@ export function createMCPCommand(): Command {
         const manager = getMCPManager();
         await manager.removeServer(name);
         removeMCPServer(name);
+        removeTrustedMCPServerFingerprint(name);
         console.log(chalk.green(`✓ Removed MCP server: ${name}`));
-      } catch (error: any) {
-        console.error(chalk.red(`Error removing MCP server: ${error.message}`));
+      } catch (error: unknown) {
+        console.error(chalk.red(`Error removing MCP server: ${error instanceof Error ? error.message : String(error)}`));
         process.exit(1);
       }
     });
@@ -258,8 +274,8 @@ export function createMCPCommand(): Command {
           });
         }
 
-      } catch (error: any) {
-        console.error(chalk.red(`✗ Failed to connect to ${name}: ${error.message}`));
+      } catch (error: unknown) {
+        console.error(chalk.red(`✗ Failed to connect to ${name}: ${error instanceof Error ? error.message : String(error)}`));
         process.exit(1);
       }
     });

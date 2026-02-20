@@ -135,7 +135,7 @@ export default function ConfirmationDialog({
             <Box marginLeft={4} flexDirection="column">
               <DiffRenderer
                 diffContent={content}
-                filename={filename}
+                {...(filename ? { filename } : {})}
                 terminalWidth={80}
               />
             </Box>
@@ -154,7 +154,7 @@ export default function ConfirmationDialog({
             <Box key={index} paddingLeft={1}>
               <Text
                 color={selectedOption === index ? "black" : "white"}
-                backgroundColor={selectedOption === index ? "cyan" : undefined}
+                {...(selectedOption === index ? { backgroundColor: "cyan" } : {})}
               >
                 {index + 1}. {option}
               </Text>

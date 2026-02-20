@@ -49,14 +49,14 @@ function parseMCPServerConfig(value: unknown): MCPServerConfig | null {
     name,
     transport: {
       type: transport.type,
-      command: typeof transport.command === "string" ? transport.command : undefined,
-      args: isStringArray(transport.args) ? transport.args : undefined,
-      url: typeof transport.url === "string" ? transport.url : undefined,
-      env: isRecord(transport.env) ? Object.fromEntries(Object.entries(transport.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")) : undefined,
-      headers: isRecord(transport.headers) ? Object.fromEntries(Object.entries(transport.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string")) : undefined,
+      ...(typeof transport.command === "string" ? { command: transport.command } : {}),
+      ...(isStringArray(transport.args) ? { args: transport.args } : {}),
+      ...(typeof transport.url === "string" ? { url: transport.url } : {}),
+      ...(isRecord(transport.env) ? { env: Object.fromEntries(Object.entries(transport.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")) } : {}),
+      ...(isRecord(transport.headers) ? { headers: Object.fromEntries(Object.entries(transport.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string")) } : {}),
     },
-    command: typeof command === "string" ? command : undefined,
-    args: isStringArray(args) ? args : undefined,
+    ...(typeof command === "string" ? { command } : {}),
+    ...(isStringArray(args) ? { args } : {}),
   };
 
   return parsed;
@@ -87,6 +87,28 @@ export function removeMCPServer(serverName: string): void {
   const mcpServers = projectSettings.mcpServers || {};
   delete mcpServers[serverName];
   manager.updateProjectSetting('mcpServers', mcpServers);
+}
+
+export function getTrustedMCPServerFingerprints(): Record<string, string> {
+  const manager = getSettingsManager();
+  const projectSettings = manager.loadProjectSettings();
+  return projectSettings.trustedMcpServers || {};
+}
+
+export function setTrustedMCPServerFingerprint(serverName: string, fingerprint: string): void {
+  const manager = getSettingsManager();
+  const projectSettings = manager.loadProjectSettings();
+  const trusted = projectSettings.trustedMcpServers || {};
+  trusted[serverName] = fingerprint;
+  manager.updateProjectSetting('trustedMcpServers', trusted);
+}
+
+export function removeTrustedMCPServerFingerprint(serverName: string): void {
+  const manager = getSettingsManager();
+  const projectSettings = manager.loadProjectSettings();
+  const trusted = projectSettings.trustedMcpServers || {};
+  delete trusted[serverName];
+  manager.updateProjectSetting('trustedMcpServers', trusted);
 }
 
 export const PREDEFINED_SERVERS: Record<string, MCPServerConfig> = {};
