@@ -3,7 +3,7 @@ import { createTransport, MCPTransport, TransportType } from "./transports.js";
 import { getTrustedMCPServerFingerprints, loadMCPConfig } from "./config.js";
 import { createHash } from "crypto";
 import { logger } from "../utils/logger.js";
-import { MCPServerName } from "../types/index.js";
+import { MCPServerName, asMCPServerName } from "../types/index.js";
 
 export interface MCPServerConfig {
   name: string;
@@ -62,7 +62,7 @@ export class MCPManager {
   }
 
   async addServer(config: MCPServerConfig): Promise<void> {
-    const serverName = config.name as MCPServerName;
+    const serverName = asMCPServerName(config.name);
     if (this.servers.has(serverName)) {
       return;
     }
@@ -103,7 +103,7 @@ export class MCPManager {
   }
 
   async removeServer(name: string): Promise<void> {
-    const brandedName = name as MCPServerName;
+    const brandedName = asMCPServerName(name);
     const server = this.servers.get(brandedName);
     if (!server) {
       return;
@@ -119,11 +119,11 @@ export class MCPManager {
   }
 
   getServers(): string[] {
-    return [...this.servers.keys()].map((name) => name as string);
+    return [...this.servers.keys()].map((name) => String(name));
   }
 
   getTransportType(name: string): string | undefined {
-    return this.servers.get(name as MCPServerName)?.transport.getType();
+    return this.servers.get(asMCPServerName(name))?.transport.getType();
   }
 
   async ensureServersInitialized(): Promise<void> {
@@ -134,7 +134,7 @@ export class MCPManager {
     const config = loadMCPConfig();
     const now = Date.now();
     for (const server of config.servers) {
-      const serverName = server.name as MCPServerName;
+      const serverName = asMCPServerName(server.name);
       const cooldownUntil = this.failedInitializationCooldownUntil.get(serverName) ?? 0;
       if (cooldownUntil > now || this.servers.has(serverName)) {
         continue;
@@ -157,13 +157,26 @@ export class MCPManager {
     this.initialized = true;
   }
 
+  private async teardownServer(name: MCPServerName): Promise<void> {
+    const connected = this.servers.get(name);
+    if (!connected) {
+      return;
+    }
+
+    await Promise.allSettled([
+      connected.client.close(),
+      connected.transport.disconnect(),
+    ]);
+    this.servers.delete(name);
+  }
+
   async callTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown[] }> {
     const parts = name.split("__");
     if (parts.length < 3 || parts[0] !== "mcp") {
       throw new Error(`Invalid MCP tool name: ${name}`);
     }
 
-    const serverName = parts[1] as MCPServerName;
+    const serverName = asMCPServerName(parts[1]);
     const toolName = parts.slice(2).join("__");
     const server = this.servers.get(serverName);
 
@@ -172,6 +185,8 @@ export class MCPManager {
     }
 
     let timeoutHandle: NodeJS.Timeout | undefined;
+    let timedOut = false;
+
     try {
       const result = await Promise.race([
         server.client.callTool({
@@ -180,6 +195,7 @@ export class MCPManager {
         }),
         new Promise<never>((_, reject) => {
           timeoutHandle = setTimeout(() => {
+            timedOut = true;
             reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
           }, MCPManager.TOOL_CALL_TIMEOUT_MS);
         }),
@@ -188,6 +204,11 @@ export class MCPManager {
       return {
         content: Array.isArray(result.content) ? result.content : [],
       };
+    } catch (error) {
+      if (timedOut) {
+        await this.teardownServer(serverName);
+      }
+      throw error;
     } finally {
       if (timeoutHandle) {
         clearTimeout(timeoutHandle);

@@ -378,7 +378,7 @@ Available models: ${modelNames.join(", ")}`,
         }
 
         // Add all changes
-        const addResult = await agent.executeBashCommand("git add .");
+        const addResult = await agent.executeBashCommand("git add -u");
 
         if (!addResult.success) {
           const addErrorEntry: ChatEntry = {
@@ -398,14 +398,14 @@ Available models: ${modelNames.join(", ")}`,
         // Show that changes were staged
         const addEntry: ChatEntry = {
           type: "tool_result",
-          content: "Changes staged successfully",
+          content: "Tracked changes staged successfully",
           timestamp: new Date(),
           toolCall: {
             id: `git_add_${Date.now()}`,
             type: "function",
             function: {
               name: "bash",
-              arguments: JSON.stringify({ command: "git add ." }),
+              arguments: JSON.stringify({ command: "git add -u" }),
             },
           },
           toolResult: addResult,

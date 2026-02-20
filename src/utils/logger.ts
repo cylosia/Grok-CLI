@@ -30,6 +30,19 @@ function sanitize(value: unknown, depth = 0): unknown {
   return value;
 }
 
+function safeJsonStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  return JSON.stringify(value, (_key, currentValue) => {
+    if (currentValue && typeof currentValue === "object") {
+      if (seen.has(currentValue)) {
+        return "[CIRCULAR]";
+      }
+      seen.add(currentValue);
+    }
+    return currentValue;
+  });
+}
+
 function emit(level: "info" | "warn" | "error", message: string, context: LogContext = {}): void {
   const payload = sanitize({
     timestamp: new Date().toISOString(),
@@ -39,7 +52,12 @@ function emit(level: "info" | "warn" | "error", message: string, context: LogCon
     ...context,
   });
 
-  const line = JSON.stringify(payload);
+  let line: string;
+  try {
+    line = safeJsonStringify(payload);
+  } catch {
+    line = '{"level":"error","message":"logger-serialization-failed"}';
+  }
   if (level === "error") {
     console.error(line);
     return;

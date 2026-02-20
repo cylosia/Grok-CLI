@@ -1,4 +1,5 @@
-import * as fs from "fs";
+import * as fsSync from "fs";
+const fs: any = (fsSync as any).promises;
 import * as path from "path";
 import * as os from "os";
 import { logger } from "./logger.js";
@@ -42,6 +43,7 @@ export class SettingsManager {
   private sessionApiKey: string | undefined;
   private userSettingsCache: UserSettings | null = null;
   private projectSettingsCache: ProjectSettings | null = null;
+  private writeQueue: Promise<void> = Promise.resolve();
 
   private constructor() {
     this.userSettingsPath = path.join(os.homedir(), ".grok", "user-settings.json");
@@ -54,38 +56,32 @@ export class SettingsManager {
   }
 
   private readJsonFile<T extends object>(filePath: string): T | null {
-    if (!fs.existsSync(filePath)) {
+    if (!fsSync.existsSync(filePath)) {
       return null;
     }
 
-    const content = fs.readFileSync(filePath, "utf-8");
+    const content = fsSync.readFileSync(filePath, "utf-8");
     return JSON.parse(content) as T;
   }
 
-  private writeJsonFile(filePath: string, value: object): void {
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    }
+  private enqueueWrite(filePath: string, value: object): void {
+    this.writeQueue = this.writeQueue
+      .then(async () => {
+        const dir = path.dirname(filePath);
+        await fs.mkdir(dir, { recursive: true, mode: 0o700 });
 
-    const tempFilePath = `${filePath}.tmp`;
-    const serialized = JSON.stringify(value, null, 2);
-    const fd = fs.openSync(tempFilePath, "w", 0o600);
-    try {
-      fs.writeFileSync(fd, serialized, "utf-8");
-      fs.fsyncSync(fd);
-    } finally {
-      fs.closeSync(fd);
-    }
-
-    fs.renameSync(tempFilePath, filePath);
-
-    const dirFd = fs.openSync(dir, "r");
-    try {
-      fs.fsyncSync(dirFd);
-    } finally {
-      fs.closeSync(dirFd);
-    }
+        const tempFilePath = `${filePath}.tmp`;
+        const serialized = JSON.stringify(value, null, 2);
+        await fs.writeFile(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600 });
+        await fs.rename(tempFilePath, filePath);
+      })
+      .catch((error: unknown) => {
+        logger.warn("settings-write-failed", {
+          component: "settings-manager",
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
   }
 
   public loadUserSettings(forceReload = false): UserSettings {
@@ -96,7 +92,7 @@ export class SettingsManager {
       const settings = this.readJsonFile<Partial<UserSettings>>(this.userSettingsPath);
       if (!settings) {
         const mergedDefaults = { ...DEFAULT_USER_SETTINGS };
-        this.writeJsonFile(this.userSettingsPath, mergedDefaults);
+        this.enqueueWrite(this.userSettingsPath, mergedDefaults);
         this.userSettingsCache = mergedDefaults;
         return mergedDefaults;
       }
@@ -106,7 +102,7 @@ export class SettingsManager {
         const { apiKey, ...sanitized } = settings;
         void apiKey;
         const merged = { ...DEFAULT_USER_SETTINGS, ...sanitized };
-        this.writeJsonFile(this.userSettingsPath, merged);
+        this.enqueueWrite(this.userSettingsPath, merged);
         this.userSettingsCache = merged;
         return merged;
       }
@@ -132,7 +128,7 @@ export class SettingsManager {
       delete merged.apiKey;
     }
 
-    this.writeJsonFile(this.userSettingsPath, merged);
+    this.enqueueWrite(this.userSettingsPath, merged);
     this.userSettingsCache = merged;
   }
 
@@ -162,7 +158,7 @@ export class SettingsManager {
       const current = this.readJsonFile<Partial<UserSettings>>(this.userSettingsPath) || DEFAULT_USER_SETTINGS;
       if (typeof current.apiKey === "string") {
         delete current.apiKey;
-        this.writeJsonFile(this.userSettingsPath, current);
+        this.enqueueWrite(this.userSettingsPath, current);
         this.userSettingsCache = { ...DEFAULT_USER_SETTINGS, ...current };
       }
       return;
@@ -180,7 +176,7 @@ export class SettingsManager {
       const settings = this.readJsonFile<Partial<ProjectSettings>>(this.projectSettingsPath);
       if (!settings) {
         const mergedDefaults = { ...DEFAULT_PROJECT_SETTINGS };
-        this.writeJsonFile(this.projectSettingsPath, mergedDefaults);
+        this.enqueueWrite(this.projectSettingsPath, mergedDefaults);
         this.projectSettingsCache = mergedDefaults;
         return mergedDefaults;
       }
@@ -201,7 +197,7 @@ export class SettingsManager {
   public saveProjectSettings(settings: Partial<ProjectSettings>): void {
     const current = this.readJsonFile<Partial<ProjectSettings>>(this.projectSettingsPath) || DEFAULT_PROJECT_SETTINGS;
     const merged = { ...DEFAULT_PROJECT_SETTINGS, ...current, ...settings };
-    this.writeJsonFile(this.projectSettingsPath, merged);
+    this.enqueueWrite(this.projectSettingsPath, merged);
     this.projectSettingsCache = merged;
   }
 

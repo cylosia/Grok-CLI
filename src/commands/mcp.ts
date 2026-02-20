@@ -30,7 +30,10 @@ function parseJsonServerConfig(raw: unknown): MCPServerConfig['transport'] {
   }
 
   const transportRaw = isRecord(raw.transport) ? raw.transport : raw;
-  const type = parseTransportType(String(transportRaw.type ?? 'stdio'));
+  if (typeof transportRaw.type !== 'string') {
+    throw new Error('transport.type is required and must be a string');
+  }
+  const type = parseTransportType(transportRaw.type);
   const transport: MCPServerConfig['transport'] = { type };
 
   if (type === 'stdio') {

@@ -173,8 +173,13 @@ export class GrokClient {
       return { role: "assistant", content: "" };
     }
 
+    const role = message.role;
+    if (role !== "system" && role !== "user" && role !== "assistant" && role !== "tool") {
+      throw new Error(`Unexpected model role received: ${String(role)}`);
+    }
+
     return {
-      role: message.role as GrokRole,
+      role,
       content: typeof message.content === "string" ? message.content : null,
       ...(message.tool_calls ? { tool_calls: parseToolCalls(message.tool_calls) } : {}),
     };
