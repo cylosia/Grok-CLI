@@ -63,15 +63,18 @@ export class GrokClient {
   }
 
   async chat(messages: GrokMessage[], options: ChatOptions = {}): Promise<GrokMessage> {
-    const response = await this.client.chat.completions.create({
-      model: this.currentModel,
-      messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-      tools: options.tools as OpenAI.Chat.Completions.ChatCompletionTool[] | undefined,
-      temperature: options.temperature,
-      max_tokens: options.maxTokens,
-    }, {
-      signal: options.signal,
-    });
+    const response = await this.withRetry(() =>
+      this.client.chat.completions.create(
+        {
+          model: this.currentModel,
+          messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+          tools: options.tools as OpenAI.Chat.Completions.ChatCompletionTool[] | undefined,
+          temperature: options.temperature,
+          max_tokens: options.maxTokens,
+        },
+        { signal: options.signal }
+      )
+    );
 
     const message = response.choices[0]?.message;
     if (!message) {
@@ -85,29 +88,29 @@ export class GrokClient {
     };
   }
 
-  async *chatStream(messages: GrokMessage[], options: ChatOptions = {}): AsyncGenerator<{
-    content?: string;
-    toolCalls?: GrokToolCall[];
-    done?: boolean;
-  }> {
-    const stream = await this.client.chat.completions.create({
-      model: this.currentModel,
-      messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-      tools: options.tools as OpenAI.Chat.Completions.ChatCompletionTool[] | undefined,
-      temperature: options.temperature,
-      max_tokens: options.maxTokens,
-      stream: true,
-    }, {
-      signal: options.signal,
-    });
+  async *chatStream(
+    messages: GrokMessage[],
+    options: ChatOptions = {}
+  ): AsyncGenerator<{ content?: string; toolCalls?: GrokToolCall[]; done?: boolean }> {
+    const stream = await this.withRetry(() =>
+      this.client.chat.completions.create(
+        {
+          model: this.currentModel,
+          messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+          tools: options.tools as OpenAI.Chat.Completions.ChatCompletionTool[] | undefined,
+          temperature: options.temperature,
+          max_tokens: options.maxTokens,
+          stream: true,
+        },
+        { signal: options.signal }
+      )
+    );
 
     const toolCalls: Record<number, GrokToolCall> = {};
 
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta;
-      if (!delta) {
-        continue;
-      }
+      if (!delta) continue;
 
       if (delta.content) {
         yield { content: delta.content };
@@ -115,30 +118,20 @@ export class GrokClient {
 
       if (delta.tool_calls) {
         for (const partial of delta.tool_calls) {
-          if (typeof partial.index !== "number") {
-            continue;
-          }
+          if (typeof partial.index !== "number") continue;
 
           const existing = toolCalls[partial.index] ?? {
             id: partial.id ?? `tool_${partial.index}`,
-            type: "function",
+            type: "function" as const,
             function: {
               name: partial.function?.name ?? "",
               arguments: partial.function?.arguments ?? "",
             },
           };
 
-          if (partial.id) {
-            existing.id = partial.id;
-          }
-
-          if (partial.function?.name) {
-            existing.function.name = partial.function.name;
-          }
-
-          if (partial.function?.arguments) {
-            existing.function.arguments += partial.function.arguments;
-          }
+          if (partial.id) existing.id = partial.id;
+          if (partial.function?.name) existing.function.name = partial.function.name;
+          if (partial.function?.arguments) existing.function.arguments += partial.function.arguments;
 
           toolCalls[partial.index] = existing;
         }
@@ -148,5 +141,34 @@ export class GrokClient {
     }
 
     yield { done: true };
+  }
+
+  private async withRetry<T>(operation: () => Promise<T>, maxAttempts = 3): Promise<T> {
+    let attempt = 0;
+    let lastError: unknown;
+
+    while (attempt < maxAttempts) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        attempt += 1;
+
+        if (attempt >= maxAttempts || !this.isRetryable(error)) {
+          throw error;
+        }
+
+        const delayMs = 200 * 2 ** (attempt - 1) + Math.floor(Math.random() * 100);
+        await new Promise<void>((resolve) => setTimeout(() => resolve(), delayMs));
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  private isRetryable(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    const status = (error as { status?: number }).status;
+    return status === 429 || (typeof status === 'number' && status >= 500);
   }
 }

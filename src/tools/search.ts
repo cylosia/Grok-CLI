@@ -98,10 +98,10 @@ export class SearchTool {
         success: true,
         output: formattedOutput,
       };
-    } catch (error: any) {
+    } catch (error) {
       return {
         success: false,
-        error: `Search error: ${error.message}`,
+        error: `Search error: ${error instanceof Error ? error.message : String(error)}` ,
       };
     }
   }
@@ -198,11 +198,11 @@ export class SearchTool {
       let errorOutput = "";
 
       rg.stdout.on("data", (data) => {
-        output += data.toString();
+        output += String(data);
       });
 
       rg.stderr.on("data", (data) => {
-        errorOutput += data.toString();
+        errorOutput += String(data);
       });
 
       rg.on("close", (code) => {
@@ -233,9 +233,9 @@ export class SearchTool {
 
     for (const line of lines) {
       try {
-        const parsed = JSON.parse(line);
-        if (parsed.type === "match") {
-          const data = parsed.data;
+        const parsed = JSON.parse(line) as { type?: string; data?: any };
+        if (parsed.type === "match" && parsed.data) {
+          const data = parsed.data as { path: { text: string }; line_number: number; submatches: Array<{ start: number; match?: { text?: string } }>; lines: { text: string } };
           results.push({
             file: data.path.text,
             line: data.line_number,
@@ -278,7 +278,7 @@ export class SearchTool {
           if (files.length >= maxResults) break;
 
           const fullPath = path.join(dir, entry.name);
-          const relativePath = path.relative(this.currentDirectory, fullPath);
+          const relativePath = fullPath.startsWith(`${this.currentDirectory}/`) ? fullPath.slice(this.currentDirectory.length + 1) : fullPath;
 
           // Skip hidden files unless explicitly included
           if (!options.includeHidden && entry.name.startsWith(".")) {

@@ -1,19 +1,19 @@
 import fs from "fs-extra";
 import * as path from "path";
-import { writeFile as writeFilePromise } from "fs/promises";
 import { ToolResult, EditorCommand } from "../types/index.js";
 import { ConfirmationService } from "../utils/confirmation-service.js";
 
 export class TextEditorTool {
   private editHistory: EditorCommand[] = [];
   private confirmationService = ConfirmationService.getInstance();
+  private workspaceRoot = process.cwd();
 
   async view(
     filePath: string,
     viewRange?: [number, number]
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = path.resolve(filePath);
+      const resolvedPath = this.resolveSafePath(filePath);
 
       if (await fs.pathExists(resolvedPath)) {
         const stats = await fs.stat(resolvedPath);
@@ -33,7 +33,7 @@ export class TextEditorTool {
           const [start, end] = viewRange;
           const selectedLines = lines.slice(start - 1, end);
           const numberedLines = selectedLines
-            .map((line, idx) => `${start + idx}: ${line}`)
+            .map((line: string, idx: number) => `${start + idx}: ${line}`)
             .join("\n");
 
           return {
@@ -45,7 +45,7 @@ export class TextEditorTool {
         const totalLines = lines.length;
         const displayLines = totalLines > 10 ? lines.slice(0, 10) : lines;
         const numberedLines = displayLines
-          .map((line, idx) => `${idx + 1}: ${line}`)
+          .map((line: string, idx: number) => `${idx + 1}: ${line}`)
           .join("\n");
         const additionalLinesMessage =
           totalLines > 10 ? `\n... +${totalLines - 10} lines` : "";
@@ -75,7 +75,7 @@ export class TextEditorTool {
     replaceAll: boolean = false
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = path.resolve(filePath);
+      const resolvedPath = this.resolveSafePath(filePath);
 
       if (!(await fs.pathExists(resolvedPath))) {
         return {
@@ -138,7 +138,7 @@ export class TextEditorTool {
       const newContent = replaceAll
         ? content.split(oldStr).join(newStr)
         : content.replace(oldStr, newStr);
-      await writeFilePromise(resolvedPath, newContent, "utf-8");
+      await fs.writeFile(resolvedPath, newContent, "utf-8");
 
       this.editHistory.push({
         command: "str_replace",
@@ -165,7 +165,7 @@ export class TextEditorTool {
 
   async create(filePath: string, content: string): Promise<ToolResult> {
     try {
-      const resolvedPath = path.resolve(filePath);
+      const resolvedPath = this.resolveSafePath(filePath);
 
       // Check if user has already accepted file operations for this session
       const sessionFlags = this.confirmationService.getSessionFlags();
@@ -202,7 +202,7 @@ export class TextEditorTool {
 
       const dir = path.dirname(resolvedPath);
       await fs.ensureDir(dir);
-      await writeFilePromise(resolvedPath, content, "utf-8");
+      await fs.writeFile(resolvedPath, content, "utf-8");
 
       this.editHistory.push({
         command: "create",
@@ -234,7 +234,7 @@ export class TextEditorTool {
     newContent: string
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = path.resolve(filePath);
+      const resolvedPath = this.resolveSafePath(filePath);
 
       if (!(await fs.pathExists(resolvedPath))) {
         return {
@@ -291,7 +291,7 @@ export class TextEditorTool {
       lines.splice(startLine - 1, endLine - startLine + 1, ...replacementLines);
       const newFileContent = lines.join("\n");
 
-      await writeFilePromise(resolvedPath, newFileContent, "utf-8");
+      await fs.writeFile(resolvedPath, newFileContent, "utf-8");
 
       this.editHistory.push({
         command: "str_replace",
@@ -321,7 +321,7 @@ export class TextEditorTool {
     content: string
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = path.resolve(filePath);
+      const resolvedPath = this.resolveSafePath(filePath);
 
       if (!(await fs.pathExists(resolvedPath))) {
         return {
@@ -336,7 +336,7 @@ export class TextEditorTool {
       lines.splice(insertLine - 1, 0, content);
       const newContent = lines.join("\n");
 
-      await writeFilePromise(resolvedPath, newContent, "utf-8");
+      await fs.writeFile(resolvedPath, newContent, "utf-8");
 
       this.editHistory.push({
         command: "insert",
@@ -376,7 +376,7 @@ export class TextEditorTool {
               lastEdit.new_str,
               lastEdit.old_str
             );
-            await writeFilePromise(lastEdit.path, revertedContent, "utf-8");
+            await fs.writeFile(lastEdit.path, revertedContent, "utf-8");
           }
           break;
 
@@ -391,7 +391,7 @@ export class TextEditorTool {
             const content = await fs.readFile(lastEdit.path, "utf-8");
             const lines = content.split("\n");
             lines.splice(lastEdit.insert_line - 1, 1);
-            await writeFilePromise(lastEdit.path, lines.join("\n"), "utf-8");
+            await fs.writeFile(lastEdit.path, lines.join("\n"), "utf-8");
           }
           break;
       }
@@ -696,6 +696,18 @@ export class TextEditorTool {
     }
     
     return diff.trim();
+  }
+
+
+  private resolveSafePath(filePath: string): string {
+    const resolvedPath = path.resolve(this.workspaceRoot, filePath);
+    const rootPrefix = this.workspaceRoot.endsWith("/") ? this.workspaceRoot : `${this.workspaceRoot}/`;
+
+    if (resolvedPath !== this.workspaceRoot && !resolvedPath.startsWith(rootPrefix)) {
+      throw new Error(`Path escapes workspace root: ${filePath}`);
+    }
+
+    return resolvedPath;
   }
 
   getEditHistory(): EditorCommand[] {

@@ -15,7 +15,7 @@ export const CommandPalette = ({ supervisor, onClose }: CommandPaletteProps) => 
   useInput((input, key) => {
     if (key.escape || key.ctrl && input === "c") onClose();
     if (key.return) {
-      supervisor.executeTask({ id: "palette-" + Date.now(), type: "reason", payload: query, priority: 10 });
+      supervisor.executeTask({ id: "palette-" + Date.now(), type: "reason", payload: { query }, priority: 10 });
       onClose();
     }
     setQuery(prev => prev + input);
