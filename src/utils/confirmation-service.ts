@@ -17,12 +17,15 @@ export interface ConfirmationResult {
   feedback?: string;
 }
 
+interface PendingConfirmation {
+  id: string;
+  resolve: (result: ConfirmationResult) => void;
+}
+
 export class ConfirmationService extends EventEmitter {
   private static instance: ConfirmationService;
-  private skipConfirmationThisSession = false;
   private pendingConfirmation: Promise<ConfirmationResult> | null = null;
-  private resolveConfirmation: ((result: ConfirmationResult) => void) | null =
-    null;
+  private pendingQueue: PendingConfirmation[] = [];
 
   // Session flags for different operation types
   private sessionFlags = {
@@ -66,13 +69,14 @@ export class ConfirmationService extends EventEmitter {
     }
 
     // Create a promise that will be resolved by the UI component
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     this.pendingConfirmation = new Promise<ConfirmationResult>((resolve) => {
-      this.resolveConfirmation = resolve;
+      this.pendingQueue.push({ id: requestId, resolve });
     });
 
     // Emit custom event that the UI can listen to (using setImmediate to ensure the UI updates)
     setImmediate(() => {
-      this.emit("confirmation-requested", options);
+      this.emit("confirmation-requested", { ...options, requestId });
     });
 
     const result = await this.pendingConfirmation;
@@ -90,20 +94,25 @@ export class ConfirmationService extends EventEmitter {
     return result;
   }
 
-  confirmOperation(confirmed: boolean, dontAskAgain?: boolean): void {
-    if (this.resolveConfirmation) {
-      this.resolveConfirmation({ confirmed, dontAskAgain });
-      this.resolveConfirmation = null;
-      this.pendingConfirmation = null;
+  private resolveRequest(result: ConfirmationResult, requestId?: string): void {
+    const queueIndex = requestId
+      ? this.pendingQueue.findIndex((request) => request.id === requestId)
+      : 0;
+    if (queueIndex < 0) {
+      return;
     }
+
+    const [request] = this.pendingQueue.splice(queueIndex, 1);
+    request.resolve(result);
+    this.pendingConfirmation = this.pendingQueue.length > 0 ? this.pendingConfirmation : null;
   }
 
-  rejectOperation(feedback?: string): void {
-    if (this.resolveConfirmation) {
-      this.resolveConfirmation({ confirmed: false, feedback });
-      this.resolveConfirmation = null;
-      this.pendingConfirmation = null;
-    }
+  confirmOperation(confirmed: boolean, dontAskAgain?: boolean, requestId?: string): void {
+    this.resolveRequest({ confirmed, dontAskAgain }, requestId);
+  }
+
+  rejectOperation(feedback?: string, requestId?: string): void {
+    this.resolveRequest({ confirmed: false, feedback }, requestId);
   }
 
   private async openInVSCode(filename: string): Promise<void> {
@@ -134,7 +143,7 @@ export class ConfirmationService extends EventEmitter {
   }
 
   isPending(): boolean {
-    return this.pendingConfirmation !== null;
+    return this.pendingQueue.length > 0;
   }
 
   resetSession(): void {
@@ -143,6 +152,8 @@ export class ConfirmationService extends EventEmitter {
       bashCommands: false,
       allOperations: false,
     };
+    this.pendingQueue = [];
+    this.pendingConfirmation = null;
   }
 
   getSessionFlags() {

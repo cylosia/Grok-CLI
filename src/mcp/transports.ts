@@ -83,6 +83,7 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
   async connect(): Promise<Transport> {
     this.client = axios.create({
       baseURL: this.config.url,
+      timeout: 10_000,
       headers: {
         'Content-Type': 'application/json',
         ...this.config.headers
@@ -96,6 +97,10 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
     } catch (error) {
       // If health endpoint doesn't exist, try a basic request
       this.connected = true;
+      this.emit('transport-warning', {
+        type: 'http-health-check-failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     return new HttpClientTransport(this.client);
@@ -161,7 +166,8 @@ class HttpClientTransport extends EventEmitter implements Transport {
     try {
       await this.client.post('/rpc', message);
     } catch (error) {
-      throw new Error(`HTTP transport error: ${error}`);
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`HTTP transport error: ${reason}`);
     }
   }
 }
@@ -185,10 +191,12 @@ class SSEClientTransport extends EventEmitter implements Transport {
     // for sending messages and SSE for receiving
     try {
       await axios.post(this.url.replace('/sse', '/rpc'), message, {
+        timeout: 10_000,
         headers: { 'Content-Type': 'application/json' }
       });
     } catch (error) {
-      throw new Error(`SSE transport error: ${error}`);
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`SSE transport error: ${reason}`);
     }
   }
 }

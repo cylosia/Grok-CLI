@@ -28,6 +28,18 @@ export interface UnifiedSearchResult {
   score?: number;
 }
 
+interface RipgrepMatchData {
+  path: { text: string };
+  line_number: number;
+  submatches: Array<{ start: number; match?: { text?: string } }>;
+  lines: { text: string };
+}
+
+interface RipgrepJsonLine {
+  type?: string;
+  data?: RipgrepMatchData;
+}
+
 export class SearchTool {
   private confirmationService = ConfirmationService.getInstance();
   private currentDirectory: string = process.cwd();
@@ -233,9 +245,9 @@ export class SearchTool {
 
     for (const line of lines) {
       try {
-        const parsed = JSON.parse(line) as { type?: string; data?: any };
+        const parsed = JSON.parse(line) as RipgrepJsonLine;
         if (parsed.type === "match" && parsed.data) {
-          const data = parsed.data as { path: { text: string }; line_number: number; submatches: Array<{ start: number; match?: { text?: string } }>; lines: { text: string } };
+          const data = parsed.data;
           results.push({
             file: data.path.text,
             line: data.line_number,
