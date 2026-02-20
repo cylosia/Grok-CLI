@@ -146,6 +146,7 @@ export class TextEditorTool {
         path: resolvedPath,
         old_str: oldStr,
         new_str: newStr,
+        previous_content: content,
       });
 
       const oldLines = content.split("\n");
@@ -299,6 +300,7 @@ export class TextEditorTool {
         path: resolvedPath,
         old_str: `lines ${startLine}-${endLine}`,
         new_str: newContent,
+        previous_content: fileContent,
       });
 
       const oldLines = fileContent.split("\n");
@@ -374,6 +376,7 @@ export class TextEditorTool {
         path: resolvedPath,
         insert_line: insertLine,
         content,
+        previous_content: fileContent,
       });
 
       return {
@@ -407,14 +410,15 @@ export class TextEditorTool {
     try {
       switch (lastEdit.command) {
         case "str_replace":
-          if (lastEdit.path && lastEdit.old_str && lastEdit.new_str) {
+          if (lastEdit.path) {
             const safePath = await this.resolveSafePath(lastEdit.path);
-            const content = await fs.readFile(safePath, "utf-8");
-            const revertedContent = content.replace(
-              lastEdit.new_str,
-              lastEdit.old_str
-            );
-            await fs.writeFile(safePath, revertedContent, "utf-8");
+            if (typeof lastEdit.previous_content === "string") {
+              await fs.writeFile(safePath, lastEdit.previous_content, "utf-8");
+            } else if (lastEdit.old_str && lastEdit.new_str) {
+              const content = await fs.readFile(safePath, "utf-8");
+              const revertedContent = content.replace(lastEdit.new_str, lastEdit.old_str);
+              await fs.writeFile(safePath, revertedContent, "utf-8");
+            }
           }
           break;
 
@@ -426,12 +430,16 @@ export class TextEditorTool {
           break;
 
         case "insert":
-          if (lastEdit.path && lastEdit.insert_line) {
+          if (lastEdit.path) {
             const safePath = await this.resolveSafePath(lastEdit.path);
-            const content = await fs.readFile(safePath, "utf-8");
-            const lines = content.split("\n");
-            lines.splice(lastEdit.insert_line - 1, 1);
-            await fs.writeFile(safePath, lines.join("\n"), "utf-8");
+            if (typeof lastEdit.previous_content === "string") {
+              await fs.writeFile(safePath, lastEdit.previous_content, "utf-8");
+            } else if (lastEdit.insert_line) {
+              const content = await fs.readFile(safePath, "utf-8");
+              const lines = content.split("\n");
+              lines.splice(lastEdit.insert_line - 1, 1);
+              await fs.writeFile(safePath, lines.join("\n"), "utf-8");
+            }
           }
           break;
       }
@@ -539,9 +547,17 @@ export class TextEditorTool {
       return targetReal;
     }
 
-    const parentDir = path.dirname(resolvedPath);
-    const parentReal = await fs.realpath(parentDir);
-    if (parentReal !== workspaceRootReal && !parentReal.startsWith(rootPrefix)) {
+    let ancestor = path.dirname(resolvedPath);
+    while (!(await fs.pathExists(ancestor))) {
+      const next = path.dirname(ancestor);
+      if (next === ancestor) {
+        throw new Error(`Unable to resolve safe parent for path: ${filePath}`);
+      }
+      ancestor = next;
+    }
+
+    const ancestorReal = await fs.realpath(ancestor);
+    if (ancestorReal !== workspaceRootReal && !ancestorReal.startsWith(rootPrefix)) {
       throw new Error(`Path parent resolves outside workspace root: ${filePath}`);
     }
 

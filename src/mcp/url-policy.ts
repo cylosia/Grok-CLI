@@ -28,7 +28,36 @@ function isPrivateHost(host: string): boolean {
   return isPrivateIpv4(normalized);
 }
 
-export function validateMcpUrl(rawUrl: string, allowLocalHttp = false): string {
+function getNodeLookup(): ((hostname: string, options: { all: boolean; verbatim: boolean }) => Promise<Array<{ address: string }>>) | null {
+  try {
+    const req = (globalThis as { require?: (id: string) => unknown }).require;
+    if (!req) return null;
+    const dnsModule = req("dns") as { promises?: { lookup?: (hostname: string, options: { all: boolean; verbatim: boolean }) => Promise<Array<{ address: string }>> } };
+    return dnsModule.promises?.lookup || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveHostAddresses(host: string): Promise<string[]> {
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(":")) {
+    return [host];
+  }
+
+  const lookup = getNodeLookup();
+  if (!lookup) {
+    return [host];
+  }
+
+  try {
+    const results = await lookup(host, { all: true, verbatim: true });
+    return results.map((entry) => entry.address);
+  } catch {
+    return [host];
+  }
+}
+
+export async function validateMcpUrl(rawUrl: string, allowLocalHttp = false): Promise<string> {
   const normalized = rawUrl.trim();
 
   const URLCtor = (globalThis as { URL?: new (input: string) => { protocol: string; hostname: string; toString(): string } }).URL;
@@ -53,14 +82,16 @@ export function validateMcpUrl(rawUrl: string, allowLocalHttp = false): string {
     throw new Error(`Invalid MCP URL host: ${rawUrl}`);
   }
 
-  const isPrivate = isPrivateHost(host);
+  const resolvedAddresses = await resolveHostAddresses(host);
+  const hostIsPrivate = isPrivateHost(host) || resolvedAddresses.some((address) => isPrivateHost(address));
+
   if (scheme === "http") {
-    if (!allowLocalHttp || !isPrivate) {
+    if (!allowLocalHttp || !hostIsPrivate) {
       throw new Error("HTTP MCP URLs are restricted to explicitly-allowed local endpoints");
     }
   }
 
-  if (scheme === "https" && isPrivate && !allowLocalHttp) {
+  if (scheme === "https" && hostIsPrivate && !allowLocalHttp) {
     throw new Error("Private-network MCP URLs require explicit local-network opt-in");
   }
 

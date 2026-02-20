@@ -15,6 +15,8 @@ export interface TransportConfig {
   headers?: Record<string, string>;
 }
 
+const PROTECTED_ENV_KEYS = new Set(["PATH", "HOME", "NODE_OPTIONS"]);
+
 export interface MCPTransport {
   connect(): Promise<Transport>;
   disconnect(): Promise<void>;
@@ -42,9 +44,13 @@ export class StdioTransport implements MCPTransport {
     }, {});
 
     // Create transport with sanitized environment variables to suppress verbose output
+    const sanitizedOverrides = Object.fromEntries(
+      Object.entries(this.config.env || {}).filter(([key]) => !PROTECTED_ENV_KEYS.has(key))
+    );
+
     const env = {
       ...baseEnv,
-      ...this.config.env,
+      ...sanitizedOverrides,
       // Try to suppress verbose output from mcp-remote
       MCP_REMOTE_QUIET: '1',
       MCP_REMOTE_SILENT: '1',
@@ -84,10 +90,10 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
     if (!config.url) {
       throw new Error('URL is required for HTTP transport');
     }
-    this.config.url = validateMcpUrl(config.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
   }
 
   async connect(): Promise<Transport> {
+    await validateMcpUrl(this.config.url!, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
     throw new Error("HTTP MCP transport is temporarily disabled until full duplex SDK transport support is implemented");
   }
 
@@ -106,10 +112,10 @@ export class SSETransport extends EventEmitter implements MCPTransport {
     if (!config.url) {
       throw new Error('URL is required for SSE transport');
     }
-    this.config.url = validateMcpUrl(config.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
   }
 
   async connect(): Promise<Transport> {
+    await validateMcpUrl(this.config.url!, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
     throw new Error("SSE MCP transport is temporarily disabled until full duplex SDK transport support is implemented");
   }
 
