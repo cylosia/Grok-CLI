@@ -133,6 +133,7 @@ export class MCPManager {
 
     const config = loadMCPConfig();
     const now = Date.now();
+    let hadFailures = false;
     for (const server of config.servers) {
       const serverName = asMCPServerName(server.name);
       const cooldownUntil = this.failedInitializationCooldownUntil.get(serverName) ?? 0;
@@ -144,6 +145,7 @@ export class MCPManager {
         await this.addServer(server);
         this.failedInitializationCooldownUntil.delete(serverName);
       } catch (error) {
+        hadFailures = true;
         this.failedInitializationCooldownUntil.set(serverName, now + MCPManager.INIT_FAILURE_COOLDOWN_MS);
         logger.warn("mcp-server-initialize-failed", {
           component: "mcp-client",
@@ -154,7 +156,7 @@ export class MCPManager {
       }
     }
 
-    this.initialized = true;
+    this.initialized = !hadFailures;
   }
 
   private async teardownServer(name: MCPServerName): Promise<void> {
@@ -185,27 +187,31 @@ export class MCPManager {
     }
 
     let timeoutHandle: NodeJS.Timeout | undefined;
-    let timedOut = false;
+    let timeoutTriggered = false;
+    let teardownPromise: Promise<void> | null = null;
 
     try {
-      const result = await new Promise<Awaited<ReturnType<typeof server.client.callTool>>>((resolve, reject) => {
+      const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutHandle = setTimeout(() => {
-          timedOut = true;
+          timeoutTriggered = true;
+          teardownPromise = this.teardownServer(serverName);
           reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
         }, MCPManager.TOOL_CALL_TIMEOUT_MS);
+      });
 
-        void server.client.callTool({
+      const callPromise = server.client.callTool({
           name: toolName,
           arguments: args,
-        }).then(resolve).catch(reject);
-      });
+        });
+
+      const result = await Promise.race([callPromise, timeoutPromise]);
 
       return {
         content: Array.isArray(result.content) ? result.content : [],
       };
     } catch (error) {
-      if (timedOut) {
-        await this.teardownServer(serverName);
+      if (timeoutTriggered && teardownPromise) {
+        await teardownPromise;
       }
       throw error;
     } finally {

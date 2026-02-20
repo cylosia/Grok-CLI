@@ -5,6 +5,7 @@ import * as os from "os";
 import { logger } from "./logger.js";
 
 const SETTINGS_VERSION = 4;
+const MAX_SETTINGS_FILE_BYTES = 1_000_000;
 
 export interface UserSettings {
   apiKey?: string;
@@ -94,6 +95,11 @@ export class SettingsManager {
   private readJsonFile(filePath: string): unknown | null {
     if (!fsSync.existsSync(filePath)) {
       return null;
+    }
+
+    const stats = fsSync.statSync(filePath);
+    if (stats.size > MAX_SETTINGS_FILE_BYTES) {
+      throw new Error(`Settings file is too large: ${filePath}`);
     }
 
     const content = fsSync.readFileSync(filePath, "utf-8");

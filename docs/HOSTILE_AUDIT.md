@@ -1,17 +1,19 @@
 # Hostile Production Audit (TypeScript / PostgreSQL Checklist)
 
 ## Scope and verification
-- **Repository inventory pass:** `rg --files`
-- **Targeted static sweeps:**
-  - `rg -n "as unknown as|:\s*any\b|Promise\.race|JSON\.parse\(|spawn\(|process\.env|skipLibCheck" src package.json tsconfig.json`
-  - `rg -n "SELECT|INSERT|UPDATE|DELETE|postgres|\bpg\b|migration|knex|prisma|typeorm" src docs`
-- **Build/type validation:** `npm run -s typecheck` ✅
-- **Supply-chain check:** `npm audit --audit-level=high` ⚠️ (registry returned HTTP 403 in this environment)
-- **Second-pass adversarial review:** re-read all files implicated by first-pass findings (tool execution, MCP transport/policy, settings, orchestration, config).
-- **Subagent note:** no subagent framework is available in this runtime; findings were independently re-validated in a second manual pass.
+- Repository inventory: `rg --files src test docs scripts bin`
+- Baseline checks:
+  - `npm test` ✅
+  - `npm run -s audit:ci` ⚠️ (registry returned `Forbidden` in this environment)
+- Targeted static sweeps:
+  - `rg -n "as unknown as|as any|@ts-ignore|Promise\.race|JSON\.parse\(|process\.env|spawn\(" src`
+  - `wc -l $(rg --files src)`
+- Phase 2 re-check focus:
+  - `tsconfig.json`, `.eslintrc.js`, `package.json`
+  - all timeout/catch paths in `src/mcp/client.ts`, `src/tools/bash.ts`, `src/utils/settings-manager.ts`, `src/mcp/url-policy.ts`
 
 ## PostgreSQL/SQL surgery status
-No PostgreSQL client, migration, schema, or SQL query layer exists in this repository snapshot; DB-specific checklist items are **N/A** for this codebase revision.
+There is **no PostgreSQL client, migration system, SQL query layer, or schema** in this repository snapshot. All PostgreSQL-specific checklist items are currently **N/A** for this codebase revision.
 
 ---
 
@@ -19,98 +21,98 @@ No PostgreSQL client, migration, schema, or SQL query layer exists in this repos
 
 ### Critical (P0)
 
-1. **File:Line:Column:** `src/tools/bash.ts:216:1` and `src/tools/bash.ts:239:1`  
-   **Category:** Security | Type | Architecture  
-   **Violation:** path-safety validation skips any argument beginning with `-`, which allows path-bearing flags to bypass workspace containment checks (example: `git -C/tmp/repo status`, `rg --ignore-file=/tmp/x`). The command-specific blocklist does not comprehensively deny path-bearing flags.  
-   **Concrete fix suggestion:** replace generic `arg.startsWith('-')` skip logic with per-command, schema-validated argument parsers. For each allowlisted command, explicitly classify which flags accept path operands and enforce workspace-relative checks on those operands; deny unknown flags by default.  
-   **Risk if not fixed:** policy bypass enables operations outside workspace, undermining the command sandbox boundary and allowing unintended filesystem disclosure/execution contexts.
+1. **File:Line:Column:** `src/tools/bash.ts:283:3`
+   - **Category:** Security | Architecture
+   - **Specific violation:** Workspace-boundary enforcement for file paths is string-based (`path.isAbsolute`, `arg.split('/')`) and does not resolve final canonical paths for command operands. Symlink traversal can bypass containment (e.g., workspace symlink pointing outside root).
+   - **Concrete fix suggestion:** In `validateArgs`, for every path-bearing operand, resolve against current working directory (`path.resolve`), canonicalize (`fs.realpath`), and enforce canonical target prefix against canonical workspace root before spawning.
+   - **Risk if not fixed:** A malicious or compromised repo can exfiltrate/read files outside the workspace boundary through allowed commands (`cat`, `grep`, `rg`, etc.).
 
 ### High (P1)
 
-2. **File:Line:Column:** `src/mcp/url-policy.ts:31:1`  
-   **Category:** Security  
-   **Violation:** DNS resolution for SSRF prevention relies on `globalThis.require`, which is frequently unavailable in ESM/bundled runtimes; fallback behavior (`return [host]`) weakens private-network detection for hostnames.  
-   **Concrete fix suggestion:** statically import `node:dns/promises` and perform mandatory lookup for hostnames; fail closed when lookup fails (or make failure behavior explicit and configurable with secure default = deny).  
-   **Risk if not fixed:** crafted public hostnames resolving to private IP ranges may bypass intended private-network restrictions.
+2. **File:Line:Column:** `src/tools/bash.ts:292:36`
+   - **Category:** Security | Type
+   - **Specific violation:** Traversal checks are POSIX-only (`arg.split('/')`) and miss Windows separators (`..\\`). This is a platform-dependent path policy bypass.
+   - **Concrete fix suggestion:** Normalize using `path.normalize(arg)` and reject any path whose normalized segments contain `..` via `path.sep`-aware parsing.
+   - **Risk if not fixed:** On Windows (or Windows-style input), relative traversal can evade current checks.
 
-3. **File:Line:Column:** `src/mcp/client.ts:191:1`  
-   **Category:** Async | Resilience  
-   **Violation:** `Promise.race` timeout does not cancel the underlying MCP SDK request; timed-out operations can continue in the background, while teardown is invoked opportunistically and potentially twice.  
-   **Concrete fix suggestion:** pass an `AbortSignal` into the SDK call (or isolate call in disposable transport with deterministic cancel/kill semantics), and avoid duplicate teardown paths by centralizing timeout cleanup in one branch.  
-   **Risk if not fixed:** runaway in-flight tool calls, connection/resource pressure, and degraded throughput during upstream slowness.
+3. **File:Line:Column:** `src/mcp/client.ts:129:3`
+   - **Category:** Async | Resilience
+   - **Specific violation:** `ensureServersInitialized()` sets `this.initialized = true` even when server initialization fails. Subsequent calls short-circuit and never retry, despite cooldown tracking.
+   - **Concrete fix suggestion:** Set `initialized` only when all configured servers have either connected or are intentionally disabled; otherwise keep lazy reattempt behavior (or move to per-server init state).
+   - **Risk if not fixed:** A transient startup error can permanently disable MCP integrations for the process lifetime.
 
-4. **File:Line:Column:** `src/grok/client.ts:125:1` (chat streaming call sites)  
-   **Category:** Async | Resilience  
-   **Violation:** outbound model calls rely on optional caller-provided abort only; no hard per-request timeout/overall deadline is enforced at the API client boundary.  
-   **Concrete fix suggestion:** enforce a default timeout/deadline at OpenAI client invocation level and propagate cancellation from all call paths; add bounded retry with jitter only for transient status classes.  
-   **Risk if not fixed:** hung upstream sockets can pin active sessions and trigger cascading latency/outage under load.
+4. **File:Line:Column:** `src/mcp/client.ts:191:7`
+   - **Category:** Async | Resilience
+   - **Specific violation:** Timeout uses manual `setTimeout` rejection without aborting the in-flight `server.client.callTool` request.
+   - **Concrete fix suggestion:** Propagate `AbortSignal` into SDK call (or encapsulate each tool call in cancellable transport context) and ensure only one teardown path runs.
+   - **Risk if not fixed:** Timed-out calls continue consuming resources, causing connection pressure and degraded throughput under latency spikes.
+
+5. **File:Line:Column:** `src/mcp/url-policy.ts:33:1`
+   - **Category:** Architecture | Resilience
+   - **Specific violation:** DNS lookup depends on `globalThis.require`, which is unavailable in standard ESM runtime. For public hostnames this throws `DNS lookup unavailable in current runtime`.
+   - **Concrete fix suggestion:** Replace runtime `require` probing with static import (`node:dns/promises`) and deterministic fallback policy.
+   - **Risk if not fixed:** Legitimate MCP URLs may fail in production depending on module runtime mode.
 
 ### Medium (P2)
 
-5. **File:Line:Column:** `src/utils/confirmation-service.ts:43:1`  
-   **Category:** Resilience | Architecture  
-   **Violation:** confirmation promises remain pending indefinitely when UI/event consumers fail to answer; no TTL, timeout, or dead-letter handling exists for queued confirmations.  
-   **Concrete fix suggestion:** add configurable per-request timeout (e.g., auto-reject after N seconds) and queue-size cap with explicit error path + telemetry.  
-   **Risk if not fixed:** stuck operations and memory growth from unbounded pending confirmation queue in degraded UI/event-loop conditions.
+6. **File:Line:Column:** `src/utils/settings-manager.ts:94:3`
+   - **Category:** Performance | Resilience
+   - **Specific violation:** Settings reads use synchronous filesystem I/O and unbounded `JSON.parse` on the main thread.
+   - **Concrete fix suggestion:** Replace with async reads plus strict size cap before parse (e.g., reject >1MB settings) and schema validation.
+   - **Risk if not fixed:** Malformed or oversized settings files can block CLI responsiveness and trigger avoidable crashes.
 
-6. **File:Line:Column:** `src/utils/settings-manager.ts:9:1` and `src/utils/settings-manager.ts:107:1`  
-   **Category:** Type | Data Integrity  
-   **Violation:** filesystem promises are obtained via double cast (`as unknown as ...`), and JSON parsing is cast to generic `T` without runtime schema enforcement at read boundary.  
-   **Concrete fix suggestion:** use typed `import { promises as fs } from "node:fs"`; validate parsed content with strict runtime schema before merge/persistence.  
-   **Risk if not fixed:** malformed config can violate invariants and produce runtime misconfiguration that static typing cannot prevent.
+7. **File:Line:Column:** `.eslintrc.js:12:3`
+   - **Category:** Testability | Quality
+   - **Specific violation:** Lint profile omits high-value production rules (`no-floating-promises`, `no-misused-promises`, `switch-exhaustiveness-check`, strict boolean conditions).
+   - **Concrete fix suggestion:** Enable `@typescript-eslint/no-floating-promises`, `@typescript-eslint/switch-exhaustiveness-check`, and fail CI on lint.
+   - **Risk if not fixed:** Async/control-flow bugs reach production undetected.
 
-7. **File:Line:Column:** `src/agent/supervisor.ts:39:1` and `src/agent/supervisor.ts:45:1`  
-   **Category:** Architecture | Security  
-   **Violation:** mutates inbound `task` object (`task.context = ...`) and serializes full payload/context directly into model prompt string, increasing side-effect coupling and potential secret spill into LLM context.  
-   **Concrete fix suggestion:** treat `Task` as immutable (clone into local execution state), and redact/whitelist fields before prompt serialization.  
-   **Risk if not fixed:** hidden cross-component state coupling and accidental disclosure of sensitive payload fields to downstream model/provider logs.
-
-8. **File:Line:Column:** `tsconfig.json:14:1`  
-   **Category:** Type  
-   **Violation:** `skipLibCheck` is enabled in production configuration.  
-   **Concrete fix suggestion:** disable `skipLibCheck` for CI/release profile (or enforce a separate strict CI tsconfig with `skipLibCheck: false`).  
-   **Risk if not fixed:** declaration incompatibilities and unsound transitive types can silently pass builds.
+8. **File:Line:Column:** `src/tools/bash.ts:318:3`
+   - **Category:** Type | Security
+   - **Specific violation:** Custom tokenizer regex is not shell-accurate (escaped quotes/backslashes not modeled), so parsed argv can differ from user intent and policy checks can evaluate altered tokens.
+   - **Concrete fix suggestion:** Replace with proven shell-words parser library or remove string command entrypoint and require structured `command + args` only.
+   - **Risk if not fixed:** Inconsistent policy enforcement and hard-to-debug command behavior.
 
 ### Low (P3)
 
-9. **File:Line:Column:** `package.json:9:1`  
-   **Category:** Testability | Quality  
-   **Violation:** test script aliases to typecheck only; no unit/integration harness is wired despite stateful tooling, transport, and orchestration code.  
-   **Concrete fix suggestion:** add deterministic unit tests for command policy, URL validation, timeout/cancellation, and settings parsing; keep `typecheck` separate from `test`.  
-   **Risk if not fixed:** regressions in critical control paths are likely to ship undetected.
+9. **File:Line:Column:** `src/hooks/use-input-handler.ts:1:1`
+   - **Category:** Architecture
+   - **Specific violation:** File is 756 lines and mixes UI input handling, command routing, edit flows, and async orchestration.
+   - **Concrete fix suggestion:** Split into cohesive hooks/modules (`history`, `slash-commands`, `execution-controller`, `ui-effects`) and inject dependencies.
+   - **Risk if not fixed:** Defect density and regression probability remain high for future changes.
 
-10. **File:Line:Column:** `src/agent/repomap.ts:11:1`  
-    **Category:** Architecture  
-    **Violation:** core graph build path is a production stub with no implementation, but appears integrated in supervisor flow assumptions.  
-    **Concrete fix suggestion:** either implement graph build semantics with explicit failure modes or gate/remove integration until production-ready.  
-    **Risk if not fixed:** misleading behavior and brittle orchestration decisions based on incomplete data structures.
-
----
-
-## PHASE 2 — Adversarial re-check focus
-
-Re-examined explicitly:
-- **Config/control-plane:** `package.json`, `tsconfig.json`, `tsconfig.strict.json`
-- **“Obvious” modules:** `src/tools/bash.ts`, `src/mcp/url-policy.ts`, `src/mcp/client.ts`, `src/grok/client.ts`, `src/utils/settings-manager.ts`
-- **Error/catch paths:** confirmation queue handling, MCP timeout teardown, JSON parsing boundaries, command validation branches
-
-Second-pass deltas:
-- Confirmed highest-risk issue is still command-argument policy bypass for path-bearing flags.
-- Confirmed MCP private-network policy depends on runtime-specific `require` availability.
-- Confirmed cancellation/timeout semantics remain non-deterministic around MCP/model calls.
+10. **File:Line:Column:** `src/tools/text-editor.ts:1:1`
+   - **Category:** Architecture | Testability
+   - **Specific violation:** 570-line multipurpose tool with parsing, validation, filesystem operations, and history logic in one class.
+   - **Concrete fix suggestion:** Extract validator, file adapter, and command executor into separate units with unit tests per boundary.
+   - **Risk if not fixed:** Complex edits will continue to produce brittle behavior and low confidence in refactors.
 
 ---
 
-## Immediate production-incident ranking (if deployed now)
+## PHASE 2 — Adversarial re-review
 
-1. **Bash path-policy bypass via flag operands (`git -C...`, similar path-bearing flags)**  
-   **Blast radius:** any automation path invoking `BashTool` can execute outside intended workspace boundaries.
+### Re-examined aggressively
+- Config and compiler settings: `tsconfig.json`, `.eslintrc.js`, `package.json`
+- "Obvious" control-plane modules: `src/tools/bash.ts`, `src/mcp/client.ts`, `src/mcp/url-policy.ts`
+- Catch/timeout/error paths: `src/utils/settings-manager.ts`, `src/mcp/client.ts`
 
-2. **MCP SSRF guard weakening when DNS lookup is unavailable**  
-   **Blast radius:** externally configured MCP endpoints may reach internal/private network services.
+### Phase 2 confirmations
+- Highest incident risk remains workspace-boundary bypass in bash path validation.
+- MCP init logic can permanently suppress server availability after transient failure.
+- Timeout semantics in MCP tool execution are still non-cancellable.
 
-3. **Non-cancellable MCP/model call timeout paths**  
-   **Blast radius:** under upstream degradation, in-flight accumulation can starve workers and collapse throughput.
+---
 
-4. **Indefinite confirmation queue waits**  
-   **Blast radius:** user-facing workflows can deadlock on stuck confirmation events, causing persistent operational stalls.
+## Immediate production-incident ranking (if deployed today)
+
+1. **Workspace containment bypass in bash path validation** (`src/tools/bash.ts`)
+   - **Blast radius:** Any workflow using BashTool can read outside the workspace when symlinks or uncanonicalized paths are present.
+
+2. **MCP initialization lockout after transient startup failures** (`src/mcp/client.ts`)
+   - **Blast radius:** All MCP-backed tools for that process become unavailable until restart.
+
+3. **Non-cancellable MCP tool call timeouts** (`src/mcp/client.ts`)
+   - **Blast radius:** Resource leakage and throughput collapse during upstream latency incidents.
+
+4. **ESM-incompatible DNS resolver path in MCP URL policy** (`src/mcp/url-policy.ts`)
+   - **Blast radius:** Production runtime mismatch can block all non-local MCP endpoint validation.

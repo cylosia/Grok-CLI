@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises";
+
 function isPrivateIpv4(host: string): boolean {
   const parts = host.split(".").map((segment) => Number(segment));
   if (parts.length !== 4 || parts.some((value) => Number.isNaN(value))) {
@@ -28,30 +30,9 @@ function isPrivateHost(host: string): boolean {
   return isPrivateIpv4(normalized);
 }
 
-type DnsLookup = (hostname: string, options: { all: boolean; verbatim: boolean }) => Promise<Array<{ address: string }>>;
-
-function getNodeLookup(): DnsLookup | null {
-  try {
-    const req = (globalThis as { require?: (id: string) => unknown }).require;
-    if (!req) return null;
-    const dnsModule = req("dns") as { promises?: { lookup?: DnsLookup } };
-    return dnsModule.promises?.lookup || null;
-  } catch {
-    return null;
-  }
-}
-
 async function resolveHostAddresses(host: string): Promise<string[]> {
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(":")) {
     return [host];
-  }
-
-  const lookup = getNodeLookup();
-  if (!lookup) {
-    if (isPrivateHost(host)) {
-      return [host];
-    }
-    throw new Error("DNS lookup unavailable in current runtime");
   }
 
   try {
