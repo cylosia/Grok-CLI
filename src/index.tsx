@@ -3,6 +3,7 @@ import App from "./ui/app.js";
 import { GrokAgent } from "./agent/grok-agent.js";
 import { loadRuntimeConfig } from "./utils/runtime-config.js";
 import { getMCPManager } from "./grok/tools.js";
+import { logger } from "./utils/logger.js";
 
 (async () => {
   const args = process.argv.slice(2);
@@ -38,7 +39,7 @@ Full TUI launches automatically when TTY is detected.
       return;
     }
     shuttingDown = true;
-    console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+    logger.info("shutdown-signal-received", { component: "index", signal });
 
     try {
       const manager = getMCPManager();
@@ -61,8 +62,7 @@ Full TUI launches automatically when TTY is detected.
   // CLI Mode (MINGW64 / non-TTY safe)
   if (!process.stdout.isTTY || args.includes('--cli')) {
     const prompt = args.filter(a => !a.startsWith('--')).join(' ') || "Hello from Grok CLI";
-    console.log("🖥️  CLI Mode (MINGW64 compatible)");
-    console.log(`Prompt: ${prompt}`);
+    logger.info("cli-mode", { component: "index", promptLength: prompt.length });
 
     const config = loadRuntimeConfig();
     const agent = new GrokAgent(config.grokApiKey, config.grokBaseUrl);
@@ -71,7 +71,10 @@ Full TUI launches automatically when TTY is detected.
       console.log("\nResult:");
       console.log(JSON.stringify(result, null, 2));
     } catch (err) {
-      console.error("Error:", err instanceof Error ? err.message : String(err));
+      logger.error("cli-mode-error", {
+        component: "index",
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
     process.exit(0);
   }

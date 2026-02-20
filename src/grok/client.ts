@@ -73,7 +73,9 @@ export class GrokClient {
           ...(typeof options.maxTokens === "number" ? { max_tokens: options.maxTokens } : {}),
         },
         { signal: options.signal }
-      )
+      ),
+      3,
+      options.signal
     );
 
     const message = response.choices[0]?.message;
@@ -103,7 +105,9 @@ export class GrokClient {
           stream: true,
         },
         { signal: options.signal }
-      )
+      ),
+      3,
+      options.signal
     );
 
     const toolCalls: Record<number, GrokToolCall> = {};
@@ -143,7 +147,7 @@ export class GrokClient {
     yield { done: true };
   }
 
-  private async withRetry<T>(operation: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  private async withRetry<T>(operation: () => Promise<T>, maxAttempts = 3, signal?: AbortSignal): Promise<T> {
     let attempt = 0;
     let lastError: unknown;
 
@@ -159,11 +163,35 @@ export class GrokClient {
         }
 
         const delayMs = 200 * 2 ** (attempt - 1) + Math.floor(Math.random() * 100);
-        await new Promise<void>((resolve) => setTimeout(() => resolve(), delayMs));
+        await this.abortableSleep(delayMs, signal);
       }
     }
 
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  private abortableSleep(delayMs: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) {
+      return new Promise<void>((resolve) => setTimeout(() => resolve(), delayMs));
+    }
+    if (signal.aborted) {
+      return Promise.reject(new Error("Operation aborted"));
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, delayMs);
+
+      const onAbort = () => {
+        clearTimeout(timeout);
+        signal.removeEventListener("abort", onAbort);
+        reject(new Error("Operation aborted"));
+      };
+
+      signal.addEventListener("abort", onAbort);
+    });
   }
 
   private isRetryable(error: unknown): boolean {

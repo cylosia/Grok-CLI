@@ -57,13 +57,13 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
       // Set environment variable for current process
       process.env.GROK_API_KEY = apiKey;
 
-      // Save to user settings
+      // Persist non-sensitive settings; API key remains in memory for this session
       try {
         const manager = getSettingsManager();
         manager.updateUserSetting('apiKey', apiKey);
-        console.log(`\n✅ API key saved to ~/.grok/user-settings.json`);
+        console.log(`\n✅ API key validated and loaded for this session`);
       } catch (error) {
-        console.log('\n⚠️ Could not save API key to settings file');
+        console.log('\n⚠️ Could not persist API key session state');
         console.log('API key set for current session only');
       }
       
@@ -99,7 +99,7 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
       <Box flexDirection="column" marginTop={1}>
         <Text color="gray" dimColor>• Press Enter to submit</Text>
         <Text color="gray" dimColor>• Press Ctrl+C to exit</Text>
-        <Text color="gray" dimColor>Note: API key will be saved to ~/.grok/user-settings.json</Text>
+        <Text color="gray" dimColor>Note: API key is kept in-memory for the current session only</Text>
       </Box>
 
       {isSubmitting ? (

@@ -38,6 +38,7 @@ export class SettingsManager {
   private static instance: SettingsManager;
   private userSettingsPath: string;
   private projectSettingsPath: string;
+  private sessionApiKey: string | undefined;
 
   private constructor() {
     this.userSettingsPath = path.join(os.homedir(), ".grok", "user-settings.json");
@@ -64,7 +65,24 @@ export class SettingsManager {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
 
-    fs.writeFileSync(filePath, JSON.stringify(value, null, 2), { mode: 0o600 });
+    const tempFilePath = `${filePath}.tmp`;
+    const serialized = JSON.stringify(value, null, 2);
+    const fd = fs.openSync(tempFilePath, "w", 0o600);
+    try {
+      fs.writeFileSync(fd, serialized, "utf-8");
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    fs.renameSync(tempFilePath, filePath);
+
+    const dirFd = fs.openSync(dir, "r");
+    try {
+      fs.fsyncSync(dirFd);
+    } finally {
+      fs.closeSync(dirFd);
+    }
   }
 
   // ==================== USER SETTINGS ====================
@@ -77,6 +95,14 @@ export class SettingsManager {
         return mergedDefaults;
       }
 
+      if (typeof settings.apiKey === "string" && settings.apiKey.length > 0) {
+        this.sessionApiKey = settings.apiKey;
+        const { apiKey, ...sanitized } = settings;
+        void apiKey;
+        this.writeJsonFile(this.userSettingsPath, { ...DEFAULT_USER_SETTINGS, ...sanitized });
+        return { ...DEFAULT_USER_SETTINGS, ...sanitized };
+      }
+
       return { ...DEFAULT_USER_SETTINGS, ...settings };
     } catch (error) {
       console.warn(`Failed to load user settings: ${error instanceof Error ? error.message : String(error)}`);
@@ -86,7 +112,13 @@ export class SettingsManager {
 
   public saveUserSettings(settings: Partial<UserSettings>): void {
     const current = this.readJsonFile<Partial<UserSettings>>(this.userSettingsPath) || DEFAULT_USER_SETTINGS;
-    this.writeJsonFile(this.userSettingsPath, { ...DEFAULT_USER_SETTINGS, ...current, ...settings });
+    const merged = { ...DEFAULT_USER_SETTINGS, ...current, ...settings };
+    if (typeof merged.apiKey === "string") {
+      this.sessionApiKey = merged.apiKey;
+      delete merged.apiKey;
+    }
+
+    this.writeJsonFile(this.userSettingsPath, merged);
   }
 
   public getCurrentModel(): string {
@@ -102,7 +134,7 @@ export class SettingsManager {
   }
 
   public getApiKey(): string | undefined {
-    return process.env.GROK_API_KEY || this.loadUserSettings().apiKey;
+    return process.env.GROK_API_KEY || this.sessionApiKey || this.loadUserSettings().apiKey;
   }
 
   public getBaseURL(): string {
@@ -110,6 +142,16 @@ export class SettingsManager {
   }
 
   public updateUserSetting<K extends keyof UserSettings>(key: K, value: UserSettings[K]): void {
+    if (key === "apiKey" && typeof value === "string") {
+      this.sessionApiKey = value;
+      const current = this.readJsonFile<Partial<UserSettings>>(this.userSettingsPath) || DEFAULT_USER_SETTINGS;
+      if (typeof current.apiKey === "string") {
+        delete current.apiKey;
+        this.writeJsonFile(this.userSettingsPath, current);
+      }
+      return;
+    }
+
     this.saveUserSettings({ [key]: value });
   }
 
