@@ -78,6 +78,7 @@ Full TUI launches automatically when TTY is detected.
         component: "index",
         error: err instanceof Error ? err.message : String(err),
       });
+      process.exit(1);
     }
     process.exit(0);
   }

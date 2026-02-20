@@ -2,6 +2,8 @@ export type Brand<T, B extends string> = T & { readonly __brand: B };
 export type TaskId = Brand<string, "TaskId">;
 export type MCPServerName = Brand<string, "MCPServerName">;
 export type MCPToolName = Brand<string, "MCPToolName">;
+export type ToolCallId = Brand<string, "ToolCallId">;
+export type ConfirmationRequestId = Brand<string, "ConfirmationRequestId">;
 
 export interface ToolResult {
   success: boolean;

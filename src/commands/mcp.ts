@@ -4,7 +4,6 @@ import { getMCPManager } from '../grok/tools.js';
 import { MCPServerConfig } from '../mcp/client.js';
 import chalk from 'chalk';
 import { createHash } from 'crypto';
-import { validateMcpUrl } from '../mcp/url-policy.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -22,7 +21,34 @@ function parseTransportType(value: unknown): 'stdio' | 'http' | 'sse' {
   if (value === 'stdio' || value === 'http' || value === 'sse') {
     return value;
   }
-  return 'stdio';
+  throw new Error(`Invalid transport type: ${String(value)}`);
+}
+
+function parseJsonServerConfig(raw: unknown): MCPServerConfig['transport'] {
+  if (!isRecord(raw)) {
+    throw new Error('JSON config must be an object');
+  }
+
+  const transportRaw = isRecord(raw.transport) ? raw.transport : raw;
+  const type = parseTransportType(String(transportRaw.type ?? 'stdio'));
+  const transport: MCPServerConfig['transport'] = { type };
+
+  if (type === 'stdio') {
+    const command = transportRaw.command;
+    if (typeof command !== 'string' || command.trim().length === 0) {
+      throw new Error('stdio transport requires a non-empty command');
+    }
+    transport.command = command;
+    if (isStringArray(transportRaw.args)) {
+      transport.args = transportRaw.args;
+    }
+    if (isStringRecord(transportRaw.env)) {
+      transport.env = transportRaw.env;
+    }
+    return transport;
+  }
+
+  throw new Error(`${type} transport is temporarily disabled until full duplex MCP support is implemented`);
 }
 
 function getServerFingerprint(config: MCPServerConfig): string {
@@ -76,16 +102,8 @@ export function createMCPCommand(): Command {
             process.exit(1);
           }
         } else if (transportType === 'http' || transportType === 'sse') {
-          if (!options.url) {
-            console.error(chalk.red(`Error: --url is required for ${transportType} transport`));
-            process.exit(1);
-          }
-          try {
-            options.url = validateMcpUrl(String(options.url), process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
-          } catch (error) {
-            console.error(chalk.red(`Error: ${error instanceof Error ? error.message : String(error)}`));
-            process.exit(1);
-          }
+          console.error(chalk.red(`Error: ${transportType} transport is temporarily disabled until full duplex MCP support is implemented`));
+          process.exit(1);
         } else {
           console.error(chalk.red('Error: Transport type must be stdio, http, or sse'));
           process.exit(1);
@@ -154,39 +172,7 @@ export function createMCPCommand(): Command {
           process.exit(1);
         }
 
-        const parsedConfig = isRecord(config) ? config : {};
-
-        const transportConfig: MCPServerConfig['transport'] = {
-          type: 'stdio',
-          ...(typeof parsedConfig.command === 'string' ? { command: parsedConfig.command } : {}),
-          ...(isStringArray(parsedConfig.args) ? { args: parsedConfig.args } : {}),
-          ...(typeof parsedConfig.url === 'string' ? { url: validateMcpUrl(parsedConfig.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1") } : {}),
-          ...(isStringRecord(parsedConfig.env) ? { env: parsedConfig.env } : {}),
-          ...(isStringRecord(parsedConfig.headers) ? { headers: parsedConfig.headers } : {}),
-        };
-
-        if (parsedConfig.transport !== undefined) {
-          if (typeof parsedConfig.transport === 'string') {
-            transportConfig.type = parseTransportType(parsedConfig.transport);
-          } else if (isRecord(parsedConfig.transport)) {
-            transportConfig.type = parseTransportType(parsedConfig.transport.type);
-            if (typeof parsedConfig.transport.command === 'string') {
-              transportConfig.command = parsedConfig.transport.command;
-            }
-            if (isStringArray(parsedConfig.transport.args)) {
-              transportConfig.args = parsedConfig.transport.args;
-            }
-            if (typeof parsedConfig.transport.url === 'string') {
-              transportConfig.url = validateMcpUrl(parsedConfig.transport.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
-            }
-            if (isStringRecord(parsedConfig.transport.env)) {
-              transportConfig.env = parsedConfig.transport.env;
-            }
-            if (isStringRecord(parsedConfig.transport.headers)) {
-              transportConfig.headers = parsedConfig.transport.headers;
-            }
-          }
-        }
+        const transportConfig = parseJsonServerConfig(config);
 
         const serverConfig: MCPServerConfig = {
           name,

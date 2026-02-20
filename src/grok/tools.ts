@@ -1,6 +1,7 @@
 import { GrokTool } from "./client.js";
 import { MCPManager, MCPTool } from "../mcp/client.js";
 import { loadMCPConfig } from "../mcp/config.js";
+import { logger } from "../utils/logger.js";
 
 const BASE_GROK_TOOLS: GrokTool[] = [
   {
@@ -299,7 +300,11 @@ export async function initializeMCPServers(): Promise<void> {
     try {
       await manager.addServer(serverConfig);
     } catch (error) {
-      console.warn(`Failed to initialize MCP server ${serverConfig.name}:`, error);
+      logger.warn("mcp-server-init-failed", {
+        component: "grok-tools",
+        server: serverConfig.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }
@@ -331,7 +336,10 @@ export async function getAllGrokTools(): Promise<GrokTool[]> {
   try {
     await manager.ensureServersInitialized();
   } catch (error) {
-    console.warn(`MCP server initialization failed: ${error instanceof Error ? error.message : String(error)}`);
+    logger.warn("mcp-server-initialization-failed", {
+      component: "grok-tools",
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
   return addMCPToolsToGrokTools(GROK_TOOLS);
 }

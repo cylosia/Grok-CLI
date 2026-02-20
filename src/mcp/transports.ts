@@ -2,7 +2,6 @@ import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ChildProcess } from "child_process";
 import { EventEmitter } from "events";
-import axios, { AxiosInstance } from "axios";
 import { validateMcpUrl } from "./url-policy.js";
 
 export type TransportType = 'stdio' | 'http' | 'sse';
@@ -80,8 +79,6 @@ export class StdioTransport implements MCPTransport {
 }
 
 export class HttpTransport extends EventEmitter implements MCPTransport {
-  private activeTransport: HttpClientTransport | null = null;
-
   constructor(private config: TransportConfig) {
     super();
     if (!config.url) {
@@ -91,34 +88,11 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
   }
 
   async connect(): Promise<Transport> {
-    const client = axios.create({
-      ...(this.config.url ? { baseURL: this.config.url } : {}),
-      timeout: 10_000,
-      headers: {
-        'Content-Type': 'application/json',
-        ...this.config.headers
-      }
-    });
-
-    // Test connection
-    try {
-      await client.get('/health');
-    } catch (error) {
-      this.emit('transport-warning', {
-        type: 'http-health-check-failed',
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    this.activeTransport = new HttpClientTransport(client);
-    return this.activeTransport;
+    throw new Error("HTTP MCP transport is temporarily disabled until full duplex SDK transport support is implemented");
   }
 
   async disconnect(): Promise<void> {
-    if (this.activeTransport) {
-      await this.activeTransport.close();
-      this.activeTransport = null;
-    }
+    // No-op while transport is disabled.
   }
 
   getType(): TransportType {
@@ -127,8 +101,6 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
 }
 
 export class SSETransport extends EventEmitter implements MCPTransport {
-  private activeTransport: SSEClientTransport | null = null;
-
   constructor(private config: TransportConfig) {
     super();
     if (!config.url) {
@@ -138,90 +110,15 @@ export class SSETransport extends EventEmitter implements MCPTransport {
   }
 
   async connect(): Promise<Transport> {
-    return new Promise((resolve, reject) => {
-      try {
-        // For Node.js environment, we'll use a simple HTTP-based approach
-        // In a real implementation, you'd use a proper SSE library like 'eventsource'
-          this.activeTransport = new SSEClientTransport(this.config.url!);
-          resolve(this.activeTransport);
-      } catch (error) {
-        reject(error);
-      }
-    });
+    throw new Error("SSE MCP transport is temporarily disabled until full duplex SDK transport support is implemented");
   }
 
   async disconnect(): Promise<void> {
-    if (this.activeTransport) {
-      await this.activeTransport.close();
-      this.activeTransport = null;
-    }
+    // No-op while transport is disabled.
   }
 
   getType(): TransportType {
     return 'sse';
-  }
-}
-
-// Custom HTTP Transport implementation
-class HttpClientTransport extends EventEmitter implements Transport {
-  private closed = false;
-
-  constructor(private client: AxiosInstance) {
-    super();
-  }
-
-  async start(): Promise<void> {
-    // HTTP transport is connection-less, so we're always "started"
-  }
-
-  async close(): Promise<void> {
-    this.closed = true;
-  }
-
-  async send(message: Parameters<Transport["send"]>[0]): Promise<void> {
-    if (this.closed) {
-      throw new Error("HTTP transport is closed");
-    }
-    try {
-      await this.client.post('/rpc', message);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new Error(`HTTP transport error: ${reason}`);
-    }
-  }
-}
-
-// Custom SSE Transport implementation
-class SSEClientTransport extends EventEmitter implements Transport {
-  private closed = false;
-
-  constructor(private url: string) {
-    super();
-  }
-
-  async start(): Promise<void> {
-    // SSE transport is event-driven, so we're always "started"
-  }
-
-  async close(): Promise<void> {
-    this.closed = true;
-  }
-
-  async send(message: Parameters<Transport["send"]>[0]): Promise<void> {
-    if (this.closed) {
-      throw new Error("SSE transport is closed");
-    }
-    // For bidirectional communication over SSE, we typically use HTTP POST
-    // for sending messages and SSE for receiving
-    try {
-      await axios.post(this.url.replace('/sse', '/rpc'), message, {
-        timeout: 10_000,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new Error(`SSE transport error: ${reason}`);
-    }
   }
 }
 

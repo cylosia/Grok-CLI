@@ -131,9 +131,13 @@ export class BashTool {
         return `${current}${clipped}\n[output truncated after ${MAX_OUTPUT_BYTES} bytes]`;
       };
 
+      let forceKillTimer: NodeJS.Timeout | undefined;
       const timer = setTimeout(() => {
         timedOut = true;
         child.kill('SIGTERM');
+        forceKillTimer = setTimeout(() => {
+          child.kill('SIGKILL');
+        }, 1_500);
       }, timeout);
 
       child.stdout.on('data', (data) => {
@@ -146,11 +150,13 @@ export class BashTool {
 
       child.on('error', (error) => {
         clearTimeout(timer);
+        if (forceKillTimer) clearTimeout(forceKillTimer);
         resolve({ code: 1, output: error instanceof Error ? error.message : String(error) });
       });
 
       child.on('close', (code) => {
         clearTimeout(timer);
+        if (forceKillTimer) clearTimeout(forceKillTimer);
         if (timedOut) {
           resolve({ code: 124, output: 'Command timed out' });
           return;
