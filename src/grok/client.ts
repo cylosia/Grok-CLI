@@ -148,7 +148,10 @@ export class GrokClient {
   }
 
   async listModels(): Promise<OpenAI.Models.Model[]> {
-    const response = await this.client.models.list();
+    const response = await this.withRetry(
+      () => this.client.models.list({ timeout: GrokClient.REQUEST_TIMEOUT_MS }),
+      3
+    );
     return response.data;
   }
 
@@ -174,10 +177,7 @@ export class GrokClient {
       return { role: "assistant", content: "" };
     }
 
-    const role = message.role;
-    if (role !== "system" && role !== "user" && role !== "assistant" && role !== "tool") {
-      throw new Error(`Unexpected model role received: ${String(role)}`);
-    }
+    const role: GrokRole = "assistant";
 
     return {
       role,

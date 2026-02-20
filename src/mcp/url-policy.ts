@@ -28,11 +28,13 @@ function isPrivateHost(host: string): boolean {
   return isPrivateIpv4(normalized);
 }
 
-function getNodeLookup(): ((hostname: string, options: { all: boolean; verbatim: boolean }) => Promise<Array<{ address: string }>>) | null {
+type DnsLookup = (hostname: string, options: { all: boolean; verbatim: boolean }) => Promise<Array<{ address: string }>>;
+
+function getNodeLookup(): DnsLookup | null {
   try {
     const req = (globalThis as { require?: (id: string) => unknown }).require;
     if (!req) return null;
-    const dnsModule = req("dns") as { promises?: { lookup?: (hostname: string, options: { all: boolean; verbatim: boolean }) => Promise<Array<{ address: string }>> } };
+    const dnsModule = req("dns") as { promises?: { lookup?: DnsLookup } };
     return dnsModule.promises?.lookup || null;
   } catch {
     return null;
@@ -46,14 +48,20 @@ async function resolveHostAddresses(host: string): Promise<string[]> {
 
   const lookup = getNodeLookup();
   if (!lookup) {
-    return [host];
+    if (isPrivateHost(host)) {
+      return [host];
+    }
+    throw new Error("DNS lookup unavailable in current runtime");
   }
 
   try {
     const results = await lookup(host, { all: true, verbatim: true });
-    return results.map((entry) => entry.address);
-  } catch {
-    return [host];
+    if (!results.length) {
+      throw new Error("No DNS records returned");
+    }
+    return results.map((entry: { address: string }) => entry.address);
+  } catch (error) {
+    throw new Error(`Failed to resolve host ${host}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

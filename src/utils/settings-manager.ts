@@ -1,12 +1,5 @@
+import fs from "fs-extra";
 import * as fsSync from "fs";
-
-type FsPromisesLike = {
-  mkdir(path: string, options?: { recursive?: boolean; mode?: number }): Promise<void>;
-  writeFile(path: string, data: string, options?: { encoding?: string; mode?: number }): Promise<void>;
-  rename(oldPath: string, newPath: string): Promise<void>;
-};
-
-const fs = (fsSync as unknown as { promises: FsPromisesLike }).promises;
 import * as path from "path";
 import * as os from "os";
 import { logger } from "./logger.js";
@@ -98,25 +91,25 @@ export class SettingsManager {
     return SettingsManager.instance;
   }
 
-  private readJsonFile<T>(filePath: string): T | null {
+  private readJsonFile(filePath: string): unknown | null {
     if (!fsSync.existsSync(filePath)) {
       return null;
     }
 
     const content = fsSync.readFileSync(filePath, "utf-8");
-    return JSON.parse(content) as T;
+    return JSON.parse(content) as unknown;
   }
 
   private enqueueWrite(filePath: string, value: object): void {
     this.writeQueue = this.writeQueue
       .then(async () => {
         const dir = path.dirname(filePath);
-        await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+        await fs.ensureDir(dir);
 
         const tempFilePath = `${filePath}.tmp`;
         const serialized = JSON.stringify(value, null, 2);
         await fs.writeFile(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600 });
-        await fs.rename(tempFilePath, filePath);
+        await fs.move(tempFilePath, filePath, { overwrite: true });
       })
       .catch((error: unknown) => {
         logger.warn("settings-write-failed", {
@@ -132,7 +125,7 @@ export class SettingsManager {
       return { ...this.userSettingsCache };
     }
     try {
-      const rawSettings = this.readJsonFile<unknown>(this.userSettingsPath);
+      const rawSettings = this.readJsonFile(this.userSettingsPath);
       if (!rawSettings) {
         const mergedDefaults = { ...DEFAULT_USER_SETTINGS };
         this.enqueueWrite(this.userSettingsPath, mergedDefaults);
@@ -166,7 +159,7 @@ export class SettingsManager {
   }
 
   public saveUserSettings(settings: Partial<UserSettings>): void {
-    const current = sanitizeUserSettings(this.readJsonFile<unknown>(this.userSettingsPath));
+    const current = sanitizeUserSettings(this.readJsonFile(this.userSettingsPath));
     const merged = { ...DEFAULT_USER_SETTINGS, ...current, ...sanitizeUserSettings(settings) };
     if (typeof merged.apiKey === "string") {
       this.sessionApiKey = merged.apiKey;
@@ -200,7 +193,7 @@ export class SettingsManager {
   public updateUserSetting<K extends keyof UserSettings>(key: K, value: UserSettings[K]): void {
     if (key === "apiKey" && typeof value === "string") {
       this.sessionApiKey = value;
-      const current = sanitizeUserSettings(this.readJsonFile<unknown>(this.userSettingsPath));
+      const current = sanitizeUserSettings(this.readJsonFile(this.userSettingsPath));
       if (typeof current.apiKey === "string") {
         delete current.apiKey;
         this.enqueueWrite(this.userSettingsPath, current);
@@ -218,7 +211,7 @@ export class SettingsManager {
     }
 
     try {
-      const rawSettings = this.readJsonFile<unknown>(this.projectSettingsPath);
+      const rawSettings = this.readJsonFile(this.projectSettingsPath);
       if (!rawSettings) {
         const mergedDefaults = { ...DEFAULT_PROJECT_SETTINGS };
         this.enqueueWrite(this.projectSettingsPath, mergedDefaults);
@@ -241,7 +234,7 @@ export class SettingsManager {
   }
 
   public saveProjectSettings(settings: Partial<ProjectSettings>): void {
-    const current = sanitizeProjectSettings(this.readJsonFile<unknown>(this.projectSettingsPath));
+    const current = sanitizeProjectSettings(this.readJsonFile(this.projectSettingsPath));
     const merged = { ...DEFAULT_PROJECT_SETTINGS, ...current, ...sanitizeProjectSettings(settings) };
     this.enqueueWrite(this.projectSettingsPath, merged);
     this.projectSettingsCache = merged;

@@ -1,7 +1,7 @@
 {
   "name": "grok-cli",
   "version": "2.0.0",
-  "description": "Grok CLI v2.0 \u2013 SuperAgent Terminal",
+  "description": "Grok CLI v2.0 – SuperAgent Terminal",
   "main": "dist/index.js",
   "bin": {
     "grok": "bin/grok"
@@ -9,8 +9,9 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "npm run -s typecheck",
-    "audit:ci": "npm audit --audit-level=high"
+    "test": "npm run -s typecheck && npm run -s test:unit",
+    "audit:ci": "npm audit --audit-level=high",
+    "test:unit": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",

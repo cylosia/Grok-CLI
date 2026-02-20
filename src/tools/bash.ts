@@ -16,6 +16,19 @@ const BLOCKED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   git: new Set(['-c']),
 };
 
+const PATH_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
+  git: new Set(['-C']),
+  rg: new Set(['--ignore-file', '--pre']),
+  grep: new Set(['--exclude-from', '--include-from', '-f']),
+  find: new Set([]),
+  ls: new Set([]),
+  cat: new Set([]),
+  mkdir: new Set([]),
+  touch: new Set([]),
+  echo: new Set([]),
+  pwd: new Set([]),
+};
+
 const UNSAFE_SHELL_METACHARS = /[;&|><`\n\r]/;
 const MAX_OUTPUT_BYTES = 1_000_000;
 
@@ -214,23 +227,70 @@ export class BashTool {
   }
 
   private async validateArgs(command: string, args: string[]): Promise<ToolResult> {
-    const pathArgCommands = new Set(['ls', 'cat', 'mkdir', 'touch', 'find', 'rg', 'grep']);
+    const pathArgCommands = new Set(['ls', 'cat', 'mkdir', 'touch', 'find', 'rg', 'grep', 'git']);
     if (!pathArgCommands.has(command)) {
       return { success: true };
     }
 
-    for (const arg of args) {
-      if (!arg || arg.startsWith('-')) {
+    const pathFlags = PATH_FLAGS_BY_COMMAND[command] ?? new Set<string>();
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (!arg) {
         continue;
       }
 
-      if (arg.includes('\0')) {
-        return { success: false, error: 'Command argument contains null byte' };
+      if (arg.startsWith('-')) {
+        let normalized = arg.split('=')[0];
+        let inlineValue = arg.includes('=') ? arg.split('=').slice(1).join('=') : undefined;
+
+        if (!pathFlags.has(normalized)) {
+          for (const candidate of pathFlags) {
+            if (candidate.length === 2 && arg.startsWith(candidate) && arg.length > candidate.length) {
+              normalized = candidate;
+              inlineValue = arg.slice(candidate.length);
+              break;
+            }
+          }
+        }
+
+        if (pathFlags.has(normalized)) {
+          const value = inlineValue ?? args[index + 1];
+          if (!value) {
+            return { success: false, error: `Missing value for path-bearing flag ${normalized}` };
+          }
+
+          const pathValidation = this.validatePathArg(value);
+          if (!pathValidation.success) {
+            return pathValidation;
+          }
+
+          if (!inlineValue) {
+            index += 1;
+          }
+        }
+        continue;
       }
 
-      if (path.isAbsolute(arg) || arg.split('/').includes('..')) {
-        return { success: false, error: `Path argument is not allowed outside workspace: ${arg}` };
+      const pathValidation = this.validatePathArg(arg);
+      if (!pathValidation.success) {
+        return pathValidation;
       }
+    }
+
+    return { success: true };
+  }
+
+  private validatePathArg(arg: string): ToolResult {
+    if (!arg) {
+      return { success: true };
+    }
+
+    if (arg.includes('\0')) {
+      return { success: false, error: 'Command argument contains null byte' };
+    }
+
+    if (path.isAbsolute(arg) || arg.split('/').includes('..')) {
+      return { success: false, error: `Path argument is not allowed outside workspace: ${arg}` };
     }
 
     return { success: true };

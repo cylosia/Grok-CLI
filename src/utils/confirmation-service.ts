@@ -27,6 +27,8 @@ interface PendingConfirmation {
 
 export class ConfirmationService extends EventEmitter {
   private static instance: ConfirmationService;
+  private static readonly MAX_PENDING_CONFIRMATIONS = 100;
+  private static readonly REQUEST_TIMEOUT_MS = 60_000;
   private pendingQueue: PendingConfirmation[] = [];
   private requestCounter = 0;
 
@@ -63,12 +65,23 @@ export class ConfirmationService extends EventEmitter {
       }
     }
 
+    if (this.pendingQueue.length >= ConfirmationService.MAX_PENDING_CONFIRMATIONS) {
+      return {
+        confirmed: false,
+        feedback: `Too many pending confirmations (>${ConfirmationService.MAX_PENDING_CONFIRMATIONS})`,
+      };
+    }
+
     this.requestCounter += 1;
     const requestId = asConfirmationRequestId(createHash("sha256").update(`${Date.now()}_${this.requestCounter}_${options.filename}`).digest("hex"));
     let resolveFn: (result: ConfirmationResult) => void = () => {};
     const promise = new Promise<ConfirmationResult>((resolve) => {
       resolveFn = resolve;
     });
+
+    const timeoutHandle = setTimeout(() => {
+      this.resolveRequest({ confirmed: false, feedback: "Confirmation timed out" }, requestId);
+    }, ConfirmationService.REQUEST_TIMEOUT_MS);
 
     this.pendingQueue.push({ id: requestId, resolve: resolveFn, promise });
 
@@ -77,6 +90,7 @@ export class ConfirmationService extends EventEmitter {
     });
 
     const result = await promise;
+    clearTimeout(timeoutHandle);
 
     if (result.dontAskAgain) {
       if (operationType === "file") {
