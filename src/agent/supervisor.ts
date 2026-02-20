@@ -2,6 +2,25 @@ import { EventEmitter } from "events";
 import { GrokAgent } from "./grok-agent.js";
 import { Repomap2 } from "./repomap.js";
 
+function redactForPrompt(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactForPrompt(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => {
+        if (/(api[-_]?key|token|password|secret|authorization|cookie)/i.test(key)) {
+          return [key, "[REDACTED]"];
+        }
+        return [key, redactForPrompt(child)];
+      })
+    );
+  }
+
+  return value;
+}
+
 export interface Task {
   id: string;
   type: "edit" | "git" | "search" | "mcp" | "reason";
@@ -28,21 +47,29 @@ export class AgentSupervisor extends EventEmitter {
   }
 
   async executeTask(task: Task): Promise<TaskResult> {
-    this.activeTasks.set(task.id, task);
-    this.emit("taskStarted", task);
+    const taskSnapshot: Task = {
+      ...task,
+      payload: { ...task.payload },
+      ...(task.context ? { context: { ...task.context } } : {}),
+    };
 
-    const query = typeof task.payload.query === "string"
-      ? task.payload.query
-      : JSON.stringify(task.payload);
+    this.activeTasks.set(task.id, taskSnapshot);
+    this.emit("taskStarted", taskSnapshot);
+
+    const query = typeof taskSnapshot.payload.query === "string"
+      ? taskSnapshot.payload.query
+      : JSON.stringify(taskSnapshot.payload);
 
     const relevantFiles = await this.repomap.getRelevantFiles(query, 8);
-    task.context = { ...task.context, relevantFiles };
+    const executionContext = { ...taskSnapshot.context, relevantFiles };
 
-    const worker = await this.getOrCreateWorker(task.type);
+    const worker = await this.getOrCreateWorker(taskSnapshot.type);
 
     try {
+      const redactedPayload = redactForPrompt(taskSnapshot.payload);
+      const redactedContext = redactForPrompt(executionContext);
       const result = await worker.processUserMessage(
-        `Task type: ${task.type}\nPayload: ${JSON.stringify(task.payload)}\nContext: ${JSON.stringify(task.context)}`
+        `Task type: ${taskSnapshot.type}\nPayload: ${JSON.stringify(redactedPayload)}\nContext: ${JSON.stringify(redactedContext)}`
       );
 
       const finalMessage = result[result.length - 1]?.content ?? "Task completed";
@@ -51,14 +78,14 @@ export class AgentSupervisor extends EventEmitter {
         output: finalMessage,
       };
 
-      this.emit("taskCompleted", { task, result: taskResult });
+      this.emit("taskCompleted", { task: taskSnapshot, result: taskResult });
       return taskResult;
     } catch (error) {
       const taskResult: TaskResult = {
         success: false,
         error: error instanceof Error ? error.message : String(error),
       };
-      this.emit("taskFailed", { task, result: taskResult });
+      this.emit("taskFailed", { task: taskSnapshot, result: taskResult });
       return taskResult;
     } finally {
       this.activeTasks.delete(task.id);

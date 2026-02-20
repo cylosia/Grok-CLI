@@ -188,19 +188,17 @@ export class MCPManager {
     let timedOut = false;
 
     try {
-      const result = await Promise.race([
-        server.client.callTool({
+      const result = await new Promise<Awaited<ReturnType<typeof server.client.callTool>>>((resolve, reject) => {
+        timeoutHandle = setTimeout(() => {
+          timedOut = true;
+          reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
+        }, MCPManager.TOOL_CALL_TIMEOUT_MS);
+
+        void server.client.callTool({
           name: toolName,
           arguments: args,
-        }),
-        new Promise<never>((_, reject) => {
-          timeoutHandle = setTimeout(() => {
-            timedOut = true;
-            void this.teardownServer(serverName);
-            reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
-          }, MCPManager.TOOL_CALL_TIMEOUT_MS);
-        }),
-      ]);
+        }).then(resolve).catch(reject);
+      });
 
       return {
         content: Array.isArray(result.content) ? result.content : [],
