@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Text, Box } from "ink";
 import { useInput } from "ink";
 import { AgentSupervisor } from "../../agent/supervisor.js";
@@ -10,7 +10,7 @@ interface CommandPaletteProps {
 
 export const CommandPalette = ({ supervisor, onClose }: CommandPaletteProps) => {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<string[]>([]);
+  const [results] = useState<string[]>([]);
 
   useInput((input, key) => {
     if (key.escape || key.ctrl && input === "c") onClose();

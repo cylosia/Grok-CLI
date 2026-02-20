@@ -1,4 +1,3 @@
-import React from "react";
 import { CommandPalette } from "./components/command-palette.js";
 import { AgentSupervisor } from "../agent/supervisor.js";
 import { loadRuntimeConfig } from "../utils/runtime-config.js";

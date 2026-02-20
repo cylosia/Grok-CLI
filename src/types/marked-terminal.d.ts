@@ -1,4 +1,10 @@
 declare module 'marked-terminal' {
-  const TerminalRenderer: any;
+  import type { Renderer } from 'marked';
+
+  interface TerminalRendererConstructor {
+    new (options?: Record<string, unknown>): Renderer;
+  }
+
+  const TerminalRenderer: TerminalRendererConstructor;
   export default TerminalRenderer;
 }

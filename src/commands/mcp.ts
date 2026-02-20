@@ -5,6 +5,25 @@ import { MCPServerConfig } from '../mcp/client.js';
 import chalk from 'chalk';
 import { createHash } from 'crypto';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string');
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function parseTransportType(value: unknown): 'stdio' | 'http' | 'sse' {
+  if (value === 'stdio' || value === 'http' || value === 'sse') {
+    return value;
+  }
+  return 'stdio';
+}
+
 function getServerFingerprint(config: MCPServerConfig): string {
   return createHash('sha256').update(JSON.stringify({
     name: config.name,
@@ -98,13 +117,12 @@ export function createMCPCommand(): Command {
           transport,
         };
 
+        const manager = getMCPManager();
+        await manager.addServer(config);
+
         addMCPServer(config);
         setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
         console.log(chalk.green(`✓ Added MCP server: ${name}`));
-        
-        // Try to connect immediately
-        const manager = getMCPManager();
-        await manager.addServer(config);
         console.log(chalk.green(`✓ Connected to MCP server: ${name}`));
         
         const tools = manager.getTools().filter(t => t.serverName === name);
@@ -130,34 +148,49 @@ export function createMCPCommand(): Command {
           process.exit(1);
         }
 
-        const serverConfig: MCPServerConfig = {
-          name,
-          transport: {
-            type: 'stdio', // default
-            ...(typeof config.command === 'string' ? { command: config.command } : {}),
-            ...(Array.isArray(config.args) ? { args: config.args } : {}),
-            ...(config.env && typeof config.env === 'object' ? { env: config.env } : {}),
-            ...(typeof config.url === 'string' ? { url: config.url } : {}),
-            ...(config.headers && typeof config.headers === 'object' ? { headers: config.headers } : {}),
-          }
+        const transportConfig: MCPServerConfig['transport'] = {
+          type: 'stdio',
+          ...(typeof config.command === 'string' ? { command: config.command } : {}),
+          ...(isStringArray(config.args) ? { args: config.args } : {}),
+          ...(typeof config.url === 'string' ? { url: config.url } : {}),
+          ...(isStringRecord(config.env) ? { env: config.env } : {}),
+          ...(isStringRecord(config.headers) ? { headers: config.headers } : {}),
         };
 
-        // Override transport type if specified
-        if (config.transport) {
+        if (config.transport !== undefined) {
           if (typeof config.transport === 'string') {
-            serverConfig.transport.type = config.transport as 'stdio' | 'http' | 'sse';
-          } else if (typeof config.transport === 'object') {
-            serverConfig.transport = { ...serverConfig.transport, ...config.transport };
+            transportConfig.type = parseTransportType(config.transport);
+          } else if (isRecord(config.transport)) {
+            transportConfig.type = parseTransportType(config.transport.type);
+            if (typeof config.transport.command === 'string') {
+              transportConfig.command = config.transport.command;
+            }
+            if (isStringArray(config.transport.args)) {
+              transportConfig.args = config.transport.args;
+            }
+            if (typeof config.transport.url === 'string') {
+              transportConfig.url = config.transport.url;
+            }
+            if (isStringRecord(config.transport.env)) {
+              transportConfig.env = config.transport.env;
+            }
+            if (isStringRecord(config.transport.headers)) {
+              transportConfig.headers = config.transport.headers;
+            }
           }
         }
+
+        const serverConfig: MCPServerConfig = {
+          name,
+          transport: transportConfig,
+        };
+
+        const manager = getMCPManager();
+        await manager.addServer(serverConfig);
 
         addMCPServer(serverConfig);
         setTrustedMCPServerFingerprint(name, getServerFingerprint(serverConfig));
         console.log(chalk.green(`✓ Added MCP server: ${name}`));
-        
-        // Try to connect immediately
-        const manager = getMCPManager();
-        await manager.addServer(serverConfig);
         console.log(chalk.green(`✓ Connected to MCP server: ${name}`));
         
         const tools = manager.getTools().filter(t => t.serverName === name);

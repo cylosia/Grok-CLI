@@ -79,8 +79,6 @@ export class StdioTransport implements MCPTransport {
 }
 
 export class HttpTransport extends EventEmitter implements MCPTransport {
-  private client: AxiosInstance | null = null;
-  private connected = false;
 
   constructor(private config: TransportConfig) {
     super();
@@ -98,14 +96,11 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
         ...this.config.headers
       }
     });
-    this.client = client;
 
     // Test connection
     try {
       await client.get('/health');
-      this.connected = true;
     } catch (error) {
-      this.connected = false;
       this.emit('transport-warning', {
         type: 'http-health-check-failed',
         error: error instanceof Error ? error.message : String(error),
@@ -116,8 +111,6 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
   }
 
   async disconnect(): Promise<void> {
-    this.connected = false;
-    this.client = null;
   }
 
   getType(): TransportType {
@@ -126,7 +119,6 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
 }
 
 export class SSETransport extends EventEmitter implements MCPTransport {
-  private connected = false;
 
   constructor(private config: TransportConfig) {
     super();
@@ -140,8 +132,7 @@ export class SSETransport extends EventEmitter implements MCPTransport {
       try {
         // For Node.js environment, we'll use a simple HTTP-based approach
         // In a real implementation, you'd use a proper SSE library like 'eventsource'
-        this.connected = true;
-        resolve(new SSEClientTransport(this.config.url!));
+          resolve(new SSEClientTransport(this.config.url!));
       } catch (error) {
         reject(error);
       }
@@ -149,7 +140,6 @@ export class SSETransport extends EventEmitter implements MCPTransport {
   }
 
   async disconnect(): Promise<void> {
-    this.connected = false;
   }
 
   getType(): TransportType {
