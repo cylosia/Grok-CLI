@@ -529,19 +529,23 @@ export class TextEditorTool {
     return true;
   }
 
+  private isWithinRoot(root: string, target: string): boolean {
+    const relative = path.relative(root, target);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  }
+
   private async resolveSafePath(filePath: string): Promise<string> {
     const workspaceRootReal = await fs.realpath(this.workspaceRoot);
     const resolvedPath = path.resolve(workspaceRootReal, filePath);
-    const rootPrefix = workspaceRootReal.endsWith("/") ? workspaceRootReal : `${workspaceRootReal}/`;
 
-    if (resolvedPath !== workspaceRootReal && !resolvedPath.startsWith(rootPrefix)) {
+    if (!this.isWithinRoot(workspaceRootReal, resolvedPath)) {
       throw new Error(`Path escapes workspace root: ${filePath}`);
     }
 
     const existingTarget = await fs.pathExists(resolvedPath);
     if (existingTarget) {
       const targetReal = await fs.realpath(resolvedPath);
-      if (targetReal !== workspaceRootReal && !targetReal.startsWith(rootPrefix)) {
+      if (!this.isWithinRoot(workspaceRootReal, targetReal)) {
         throw new Error(`Path resolves outside workspace root: ${filePath}`);
       }
       return targetReal;
@@ -557,7 +561,7 @@ export class TextEditorTool {
     }
 
     const ancestorReal = await fs.realpath(ancestor);
-    if (ancestorReal !== workspaceRootReal && !ancestorReal.startsWith(rootPrefix)) {
+    if (!this.isWithinRoot(workspaceRootReal, ancestorReal)) {
       throw new Error(`Path parent resolves outside workspace root: ${filePath}`);
     }
 

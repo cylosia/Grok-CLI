@@ -5,6 +5,13 @@ export interface MCPConfig {
   servers: MCPServerConfig[];
 }
 
+const SERVER_NAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
+const BLOCKED_CONFIG_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function isSafeServerKey(value: string): boolean {
+  return SERVER_NAME_PATTERN.test(value) && !BLOCKED_CONFIG_KEYS.has(value);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -65,26 +72,37 @@ function parseMCPServerConfig(value: unknown): MCPServerConfig | null {
 export function loadMCPConfig(): MCPConfig {
   const manager = getSettingsManager();
   const projectSettings = manager.loadProjectSettings();
-  const rawServers = projectSettings.mcpServers ? Object.values(projectSettings.mcpServers) : [];
+  const rawEntries = projectSettings.mcpServers ? Object.entries(projectSettings.mcpServers) : [];
+  const rawServers = rawEntries
+    .filter(([name]) => isSafeServerKey(name))
+    .map(([, config]) => config);
   const servers = rawServers
     .map((server) => parseMCPServerConfig(server))
-    .filter((server): server is MCPServerConfig => server !== null);
+    .filter((server): server is MCPServerConfig => server !== null && isSafeServerKey(server.name));
 
   return { servers };
 }
 
 export function addMCPServer(config: MCPServerConfig): void {
+  if (!isSafeServerKey(config.name)) {
+    throw new Error(`Invalid MCP server name: ${config.name}`);
+  }
+
   const manager = getSettingsManager();
   const projectSettings = manager.loadProjectSettings();
-  const mcpServers = projectSettings.mcpServers || {};
+  const mcpServers = Object.assign(Object.create(null), projectSettings.mcpServers || {}) as Record<string, unknown>;
   mcpServers[config.name] = config;
   manager.updateProjectSetting('mcpServers', mcpServers);
 }
 
 export function removeMCPServer(serverName: string): void {
+  if (!isSafeServerKey(serverName)) {
+    return;
+  }
+
   const manager = getSettingsManager();
   const projectSettings = manager.loadProjectSettings();
-  const mcpServers = projectSettings.mcpServers || {};
+  const mcpServers = Object.assign(Object.create(null), projectSettings.mcpServers || {}) as Record<string, unknown>;
   delete mcpServers[serverName];
   manager.updateProjectSetting('mcpServers', mcpServers);
 }
@@ -96,17 +114,25 @@ export function getTrustedMCPServerFingerprints(): Record<string, string> {
 }
 
 export function setTrustedMCPServerFingerprint(serverName: string, fingerprint: string): void {
+  if (!isSafeServerKey(serverName)) {
+    throw new Error(`Invalid MCP server name: ${serverName}`);
+  }
+
   const manager = getSettingsManager();
   const projectSettings = manager.loadProjectSettings();
-  const trusted = projectSettings.trustedMcpServers || {};
+  const trusted = Object.assign(Object.create(null), projectSettings.trustedMcpServers || {}) as Record<string, string>;
   trusted[serverName] = fingerprint;
   manager.updateProjectSetting('trustedMcpServers', trusted);
 }
 
 export function removeTrustedMCPServerFingerprint(serverName: string): void {
+  if (!isSafeServerKey(serverName)) {
+    return;
+  }
+
   const manager = getSettingsManager();
   const projectSettings = manager.loadProjectSettings();
-  const trusted = projectSettings.trustedMcpServers || {};
+  const trusted = Object.assign(Object.create(null), projectSettings.trustedMcpServers || {}) as Record<string, string>;
   delete trusted[serverName];
   manager.updateProjectSetting('trustedMcpServers', trusted);
 }

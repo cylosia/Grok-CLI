@@ -3,7 +3,7 @@ import { createTransport, MCPTransport, TransportType } from "./transports.js";
 import { getTrustedMCPServerFingerprints, loadMCPConfig } from "./config.js";
 import { createHash } from "crypto";
 import { logger } from "../utils/logger.js";
-import { MCPServerName, asMCPServerName } from "../types/index.js";
+import { MCPServerName, asMCPServerName, parseMCPServerName } from "../types/index.js";
 
 export interface MCPServerConfig {
   name: string;
@@ -103,7 +103,10 @@ export class MCPManager {
   }
 
   async removeServer(name: string): Promise<void> {
-    const brandedName = asMCPServerName(name);
+    const brandedName = parseMCPServerName(name);
+    if (!brandedName) {
+      return;
+    }
     const server = this.servers.get(brandedName);
     if (!server) {
       return;
@@ -123,7 +126,11 @@ export class MCPManager {
   }
 
   getTransportType(name: string): string | undefined {
-    return this.servers.get(asMCPServerName(name))?.transport.getType();
+    const brandedName = parseMCPServerName(name);
+    if (!brandedName) {
+      return undefined;
+    }
+    return this.servers.get(brandedName)?.transport.getType();
   }
 
   async ensureServersInitialized(): Promise<void> {
@@ -178,7 +185,10 @@ export class MCPManager {
       throw new Error(`Invalid MCP tool name: ${name}`);
     }
 
-    const serverName = asMCPServerName(parts[1]);
+    const serverName = parseMCPServerName(parts[1]);
+    if (!serverName) {
+      throw new Error(`Invalid MCP server name: ${parts[1]}`);
+    }
     const toolName = parts.slice(2).join("__");
     const server = this.servers.get(serverName);
 
@@ -195,14 +205,16 @@ export class MCPManager {
         timeoutHandle = setTimeout(() => {
           timeoutTriggered = true;
           teardownPromise = this.teardownServer(serverName);
-          reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
+          void teardownPromise.finally(() => {
+            reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
+          });
         }, MCPManager.TOOL_CALL_TIMEOUT_MS);
       });
 
       const callPromise = server.client.callTool({
-          name: toolName,
-          arguments: args,
-        });
+        name: toolName,
+        arguments: args,
+      });
 
       const result = await Promise.race([callPromise, timeoutPromise]);
 

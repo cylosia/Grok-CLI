@@ -38,6 +38,11 @@ export class BashTool {
   private canonicalWorkspaceRootPromise: Promise<string>;
   private confirmationService = ConfirmationService.getInstance();
 
+  private isWithinWorkspace(root: string, candidate: string): boolean {
+    const relative = path.relative(root, candidate);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  }
+
   constructor() {
     this.canonicalWorkspaceRootPromise = fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
   }
@@ -194,10 +199,8 @@ export class BashTool {
   private async changeDirectory(newDir: string): Promise<ToolResult> {
     const workspaceRoot = await this.canonicalWorkspaceRootPromise;
     const target = path.resolve(this.currentDirectory, newDir);
-    const rootPrefix = workspaceRoot.endsWith('/')
-      ? workspaceRoot
-      : `${workspaceRoot}/`;
-    if (target !== workspaceRoot && !target.startsWith(rootPrefix)) {
+    const canonicalTarget = await fs.realpath(target).catch(() => target);
+    if (!this.isWithinWorkspace(workspaceRoot, canonicalTarget)) {
       return {
         success: false,
         error: `Cannot change directory outside workspace root: ${newDir}`,
@@ -214,8 +217,7 @@ export class BashTool {
       return { success: false, error: `Cannot change directory: not a directory: ${newDir}` };
     }
 
-    const canonicalTarget = await fs.realpath(target);
-    if (canonicalTarget !== workspaceRoot && !canonicalTarget.startsWith(rootPrefix)) {
+    if (!this.isWithinWorkspace(workspaceRoot, canonicalTarget)) {
       return {
         success: false,
         error: `Cannot change directory outside workspace root: ${newDir}`,
