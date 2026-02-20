@@ -259,7 +259,7 @@ export class BashTool {
             return { success: false, error: `Missing value for path-bearing flag ${normalized}` };
           }
 
-          const pathValidation = this.validatePathArg(value);
+          const pathValidation = await this.validatePathArg(value);
           if (!pathValidation.success) {
             return pathValidation;
           }
@@ -271,7 +271,7 @@ export class BashTool {
         continue;
       }
 
-      const pathValidation = this.validatePathArg(arg);
+      const pathValidation = await this.validatePathArg(arg);
       if (!pathValidation.success) {
         return pathValidation;
       }
@@ -280,7 +280,7 @@ export class BashTool {
     return { success: true };
   }
 
-  private validatePathArg(arg: string): ToolResult {
+  private async validatePathArg(arg: string): Promise<ToolResult> {
     if (!arg) {
       return { success: true };
     }
@@ -289,11 +289,44 @@ export class BashTool {
       return { success: false, error: 'Command argument contains null byte' };
     }
 
-    if (path.isAbsolute(arg) || arg.split('/').includes('..')) {
+    const normalized = path.normalize(arg);
+    const segments = normalized.split(/[\\/]+/).filter((segment) => segment.length > 0);
+
+    if (path.isAbsolute(arg) || segments.includes('..')) {
+      return { success: false, error: `Path argument is not allowed outside workspace: ${arg}` };
+    }
+
+    const workspaceRoot = await this.canonicalWorkspaceRootPromise;
+    const resolvedPath = path.resolve(this.currentDirectory, arg);
+    const canonicalCandidate = await this.canonicalizePathForValidation(resolvedPath);
+    const rootPrefix = workspaceRoot.endsWith(path.sep)
+      ? workspaceRoot
+      : `${workspaceRoot}${path.sep}`;
+    if (canonicalCandidate !== workspaceRoot && !canonicalCandidate.startsWith(rootPrefix)) {
       return { success: false, error: `Path argument is not allowed outside workspace: ${arg}` };
     }
 
     return { success: true };
+  }
+
+  private async canonicalizePathForValidation(targetPath: string): Promise<string> {
+    try {
+      return await fs.realpath(targetPath);
+    } catch {
+      const relative = path.relative(this.currentDirectory, targetPath);
+      let cursor = targetPath;
+      while (cursor !== path.dirname(cursor)) {
+        if (await fs.pathExists(cursor)) {
+          const canonicalExisting = await fs.realpath(cursor);
+          const remainder = path.relative(cursor, targetPath);
+          return path.resolve(canonicalExisting, remainder);
+        }
+        cursor = path.dirname(cursor);
+      }
+
+      const canonicalCwd = await fs.realpath(this.currentDirectory).catch(() => this.currentDirectory);
+      return path.resolve(canonicalCwd, relative);
+    }
   }
 
   private validateCommandSpecificArgs(command: string, args: string[]): ToolResult {
@@ -316,12 +349,57 @@ export class BashTool {
   }
 
   private tokenize(command: string): string[] {
-    const matches = command.match(/"[^"]*"|'[^']*'|\S+/g);
-    if (!matches) {
+    const tokens: string[] = [];
+    let current = "";
+    let quote: '"' | "'" | null = null;
+    let escaping = false;
+
+    for (const char of command) {
+      if (escaping) {
+        current += char;
+        escaping = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaping = true;
+        continue;
+      }
+
+      if (quote) {
+        if (char === quote) {
+          quote = null;
+        } else {
+          current += char;
+        }
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        quote = char;
+        continue;
+      }
+
+      if (/\s/.test(char)) {
+        if (current.length > 0) {
+          tokens.push(current);
+          current = "";
+        }
+        continue;
+      }
+
+      current += char;
+    }
+
+    if (escaping || quote) {
       return [];
     }
 
-    return matches.map((token) => token.replace(/^['"]|['"]$/g, ''));
+    if (current.length > 0) {
+      tokens.push(current);
+    }
+
+    return tokens;
   }
 
   getCurrentDirectory(): string {
