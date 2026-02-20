@@ -52,13 +52,12 @@ export function createMCPCommand(): Command {
         // Check if it's a predefined server
         if (PREDEFINED_SERVERS[name]) {
           const config = PREDEFINED_SERVERS[name];
+          const manager = getMCPManager();
+          await manager.addServer(config);
+
           addMCPServer(config);
           setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
           console.log(chalk.green(`✓ Added predefined MCP server: ${name}`));
-          
-          // Try to connect immediately
-          const manager = getMCPManager();
-          await manager.addServer(config);
           console.log(chalk.green(`✓ Connected to MCP server: ${name}`));
           
           const tools = manager.getTools().filter(t => t.serverName === name);
@@ -68,7 +67,7 @@ export function createMCPCommand(): Command {
         }
 
         // Custom server
-        const transportType = options.transport.toLowerCase();
+        const transportType = parseTransportType(String(options.transport).toLowerCase());
         
         if (transportType === 'stdio') {
           if (!options.command) {
@@ -104,7 +103,7 @@ export function createMCPCommand(): Command {
         }
 
         const transport: MCPServerConfig['transport'] = {
-          type: transportType as 'stdio' | 'http' | 'sse',
+          type: transportType,
           ...(typeof options.command === 'string' ? { command: options.command } : {}),
           ...(Array.isArray(options.args) ? { args: options.args } : {}),
           ...(typeof options.url === 'string' ? { url: options.url } : {}),
@@ -140,7 +139,7 @@ export function createMCPCommand(): Command {
     .description('Add an MCP server from JSON configuration')
     .action(async (name: string, jsonConfig: string) => {
       try {
-        let config;
+        let config: unknown;
         try {
           config = JSON.parse(jsonConfig);
         } catch (error) {
@@ -148,34 +147,36 @@ export function createMCPCommand(): Command {
           process.exit(1);
         }
 
+        const parsedConfig = isRecord(config) ? config : {};
+
         const transportConfig: MCPServerConfig['transport'] = {
           type: 'stdio',
-          ...(typeof config.command === 'string' ? { command: config.command } : {}),
-          ...(isStringArray(config.args) ? { args: config.args } : {}),
-          ...(typeof config.url === 'string' ? { url: config.url } : {}),
-          ...(isStringRecord(config.env) ? { env: config.env } : {}),
-          ...(isStringRecord(config.headers) ? { headers: config.headers } : {}),
+          ...(typeof parsedConfig.command === 'string' ? { command: parsedConfig.command } : {}),
+          ...(isStringArray(parsedConfig.args) ? { args: parsedConfig.args } : {}),
+          ...(typeof parsedConfig.url === 'string' ? { url: parsedConfig.url } : {}),
+          ...(isStringRecord(parsedConfig.env) ? { env: parsedConfig.env } : {}),
+          ...(isStringRecord(parsedConfig.headers) ? { headers: parsedConfig.headers } : {}),
         };
 
-        if (config.transport !== undefined) {
-          if (typeof config.transport === 'string') {
-            transportConfig.type = parseTransportType(config.transport);
-          } else if (isRecord(config.transport)) {
-            transportConfig.type = parseTransportType(config.transport.type);
-            if (typeof config.transport.command === 'string') {
-              transportConfig.command = config.transport.command;
+        if (parsedConfig.transport !== undefined) {
+          if (typeof parsedConfig.transport === 'string') {
+            transportConfig.type = parseTransportType(parsedConfig.transport);
+          } else if (isRecord(parsedConfig.transport)) {
+            transportConfig.type = parseTransportType(parsedConfig.transport.type);
+            if (typeof parsedConfig.transport.command === 'string') {
+              transportConfig.command = parsedConfig.transport.command;
             }
-            if (isStringArray(config.transport.args)) {
-              transportConfig.args = config.transport.args;
+            if (isStringArray(parsedConfig.transport.args)) {
+              transportConfig.args = parsedConfig.transport.args;
             }
-            if (typeof config.transport.url === 'string') {
-              transportConfig.url = config.transport.url;
+            if (typeof parsedConfig.transport.url === 'string') {
+              transportConfig.url = parsedConfig.transport.url;
             }
-            if (isStringRecord(config.transport.env)) {
-              transportConfig.env = config.transport.env;
+            if (isStringRecord(parsedConfig.transport.env)) {
+              transportConfig.env = parsedConfig.transport.env;
             }
-            if (isStringRecord(config.transport.headers)) {
-              transportConfig.headers = config.transport.headers;
+            if (isStringRecord(parsedConfig.transport.headers)) {
+              transportConfig.headers = parsedConfig.transport.headers;
             }
           }
         }

@@ -34,6 +34,7 @@ interface ConnectedServer {
 export class MCPManager {
   private servers = new Map<string, ConnectedServer>();
   private initialized = false;
+  private static readonly TOOL_CALL_TIMEOUT_MS = 30_000;
 
   private getServerFingerprint(config: MCPServerConfig): string {
     const payload = {
@@ -155,13 +156,27 @@ export class MCPManager {
       throw new Error(`MCP server not connected: ${serverName}`);
     }
 
-    const result = await server.client.callTool({
-      name: toolName,
-      arguments: args,
-    });
+    let timeoutHandle: NodeJS.Timeout | undefined;
+    try {
+      const result = await Promise.race([
+        server.client.callTool({
+          name: toolName,
+          arguments: args,
+        }),
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
+          }, MCPManager.TOOL_CALL_TIMEOUT_MS);
+        }),
+      ]);
 
-    return {
-      content: Array.isArray(result.content) ? result.content : [],
-    };
+      return {
+        content: Array.isArray(result.content) ? result.content : [],
+      };
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 }

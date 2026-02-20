@@ -26,7 +26,11 @@ declare namespace NodeJS {
   type Timeout = { ref(): Timeout; unref(): Timeout };
 }
 
-declare class AbortSignal {}
+declare class AbortSignal {
+  readonly aborted: boolean;
+  addEventListener(event: "abort", listener: () => void): void;
+  removeEventListener(event: "abort", listener: () => void): void;
+}
 declare class AbortController {
   readonly signal: AbortSignal;
   abort(reason?: unknown): void;
@@ -69,7 +73,12 @@ declare module "fs" {
   export function existsSync(path: string): boolean;
   export function readFileSync(path: string, encoding: string): string;
   export function writeFileSync(path: string, data: string, options?: { mode?: number }): void;
+  export function writeFileSync(fd: number, data: string, encoding?: string): void;
   export function mkdirSync(path: string, options?: { recursive?: boolean; mode?: number }): void;
+  export function openSync(path: string, flags: string, mode?: number): number;
+  export function fsyncSync(fd: number): void;
+  export function closeSync(fd: number): void;
+  export function renameSync(oldPath: string, newPath: string): void;
 }
 
 declare module "path" {
