@@ -4,6 +4,8 @@ import fs from "fs-extra";
 import * as path from "path";
 import { logger } from "../utils/logger.js";
 
+const MAX_RG_OUTPUT_BYTES = 2_000_000;
+
 export interface SearchResult {
   file: string;
   line: number;
@@ -206,16 +208,37 @@ export class SearchTool {
       const rg = spawn("rg", args);
       let output = "";
       let errorOutput = "";
+      let outputTruncated = false;
+
+      const appendWithCap = (current: string, chunk: string): string => {
+        if (current.length >= MAX_RG_OUTPUT_BYTES) {
+          outputTruncated = true;
+          return current;
+        }
+        const allowed = MAX_RG_OUTPUT_BYTES - current.length;
+        if (chunk.length <= allowed) {
+          return current + chunk;
+        }
+        outputTruncated = true;
+        return current + chunk.slice(0, allowed);
+      };
 
       rg.stdout.on("data", (data) => {
-        output += String(data);
+        output = appendWithCap(output, String(data));
+        if (outputTruncated) {
+          rg.kill("SIGTERM");
+        }
       });
 
       rg.stderr.on("data", (data) => {
-        errorOutput += String(data);
+        errorOutput = appendWithCap(errorOutput, String(data));
       });
 
       rg.on("close", (code) => {
+        if (outputTruncated) {
+          reject(new Error(`Ripgrep output exceeded ${MAX_RG_OUTPUT_BYTES} bytes; narrow your search query`));
+          return;
+        }
         if (code === 0 || code === 1) {
           // 0 = found, 1 = not found
           const results = this.parseRipgrepOutput(output);
@@ -254,9 +277,11 @@ export class SearchTool {
             match: data.submatches[0]?.match?.text || "",
           });
         }
-      } catch (e) {
-        // Skip invalid JSON lines
-        continue;
+      } catch (error) {
+        logger.warn("search-invalid-rg-json-line", {
+          component: "search-tool",
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 

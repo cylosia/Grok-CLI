@@ -1,6 +1,7 @@
 import { Text } from 'ink';
 import { marked } from 'marked';
 import TerminalRenderer from 'marked-terminal';
+import { logger } from '../../utils/logger.js';
 
 // Configure marked to use the terminal renderer with default settings
 marked.setOptions({
@@ -16,7 +17,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
     return <Text>{rendered}</Text>;
   } catch (error) {
     // Fallback to plain text if markdown parsing fails
-    console.error('Markdown rendering error:', error);
+    logger.warn('markdown-render-failed', { component: 'markdown-renderer', error: error instanceof Error ? error.message : String(error) });
     return <Text>{content}</Text>;
   }
 }

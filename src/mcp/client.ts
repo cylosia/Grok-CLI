@@ -36,7 +36,9 @@ interface ConnectedServer {
 export class MCPManager {
   private servers = new Map<MCPServerName, ConnectedServer>();
   private initialized = false;
+  private failedInitializationCooldownUntil = new Map<MCPServerName, number>();
   private static readonly TOOL_CALL_TIMEOUT_MS = 30_000;
+  private static readonly INIT_FAILURE_COOLDOWN_MS = 60_000;
 
   private getServerFingerprint(config: MCPServerConfig): string {
     const payload = {
@@ -129,21 +131,30 @@ export class MCPManager {
       return;
     }
 
-    let successfulInitializations = 0;
     const config = loadMCPConfig();
+    const now = Date.now();
     for (const server of config.servers) {
+      const serverName = server.name as MCPServerName;
+      const cooldownUntil = this.failedInitializationCooldownUntil.get(serverName) ?? 0;
+      if (cooldownUntil > now || this.servers.has(serverName)) {
+        continue;
+      }
+
       try {
         await this.addServer(server);
-        successfulInitializations += 1;
+        this.failedInitializationCooldownUntil.delete(serverName);
       } catch (error) {
+        this.failedInitializationCooldownUntil.set(serverName, now + MCPManager.INIT_FAILURE_COOLDOWN_MS);
         logger.warn("mcp-server-initialize-failed", {
           component: "mcp-client",
           server: server.name,
+          cooldownMs: MCPManager.INIT_FAILURE_COOLDOWN_MS,
           error: error instanceof Error ? error.message : String(error),
         });
       }
     }
-    this.initialized = successfulInitializations === config.servers.length;
+
+    this.initialized = true;
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown[] }> {

@@ -2,6 +2,7 @@ import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import { EventEmitter } from "events";
 import { createHash } from "crypto";
+import { ConfirmationRequestId } from "../types/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +20,7 @@ export interface ConfirmationResult {
 }
 
 interface PendingConfirmation {
-  id: string;
+  id: ConfirmationRequestId;
   resolve: (result: ConfirmationResult) => void;
   promise: Promise<ConfirmationResult>;
 }
@@ -63,7 +64,7 @@ export class ConfirmationService extends EventEmitter {
     }
 
     this.requestCounter += 1;
-    const requestId = createHash("sha256").update(`${Date.now()}_${this.requestCounter}_${options.filename}`).digest("hex");
+    const requestId = createHash("sha256").update(`${Date.now()}_${this.requestCounter}_${options.filename}`).digest("hex") as ConfirmationRequestId;
     let resolveFn: (result: ConfirmationResult) => void = () => {};
     const promise = new Promise<ConfirmationResult>((resolve) => {
       resolveFn = resolve;
@@ -88,7 +89,7 @@ export class ConfirmationService extends EventEmitter {
     return result;
   }
 
-  private resolveRequest(result: ConfirmationResult, requestId?: string): void {
+  private resolveRequest(result: ConfirmationResult, requestId?: ConfirmationRequestId): void {
     const queueIndex = requestId
       ? this.pendingQueue.findIndex((request) => request.id === requestId)
       : 0;
@@ -100,11 +101,11 @@ export class ConfirmationService extends EventEmitter {
     request.resolve(result);
   }
 
-  confirmOperation(confirmed: boolean, dontAskAgain?: boolean, requestId?: string): void {
+  confirmOperation(confirmed: boolean, dontAskAgain?: boolean, requestId?: ConfirmationRequestId): void {
     this.resolveRequest({ confirmed, ...(typeof dontAskAgain === "boolean" ? { dontAskAgain } : {}) }, requestId);
   }
 
-  rejectOperation(feedback?: string, requestId?: string): void {
+  rejectOperation(feedback?: string, requestId?: ConfirmationRequestId): void {
     this.resolveRequest({ confirmed: false, ...(typeof feedback === "string" ? { feedback } : {}) }, requestId);
   }
 
