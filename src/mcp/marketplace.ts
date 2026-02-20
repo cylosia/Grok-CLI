@@ -1,5 +1,3 @@
-import { MCPManager } from "./client.js";
-
 export class MCPMarketplace {
   async search(query: string) {
     console.log(`🔍 Searching MCP Marketplace for "${query}"...`);

@@ -1,12 +1,12 @@
-import React from 'react';
+import type { ReactNode } from 'react';
 import { Text, Box } from 'ink';
 
 export const colorizeCode = (
   content: string,
-  language: string | null,
-  availableTerminalHeight?: number,
-  terminalWidth?: number
-): React.ReactNode => {
+  _language: string | null,
+  _availableTerminalHeight?: number,
+  _terminalWidth?: number
+): ReactNode => {
   // Simple plain text rendering - could be enhanced with syntax highlighting later
   return (
     <Box flexDirection="column">

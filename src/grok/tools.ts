@@ -285,14 +285,10 @@ function buildGrokTools(): GrokTool[] {
 // Export dynamic tools array
 export const GROK_TOOLS: GrokTool[] = buildGrokTools();
 
-// Global MCP manager instance
-let mcpManager: MCPManager | null = null;
+const MCP_MANAGER = new MCPManager();
 
 export function getMCPManager(): MCPManager {
-  if (!mcpManager) {
-    mcpManager = new MCPManager();
-  }
-  return mcpManager;
+  return MCP_MANAGER;
 }
 
 export async function initializeMCPServers(): Promise<void> {
@@ -324,11 +320,7 @@ export function convertMCPToolToGrokTool(mcpTool: MCPTool): GrokTool {
 }
 
 export function addMCPToolsToGrokTools(baseTools: GrokTool[]): GrokTool[] {
-  if (!mcpManager) {
-    return baseTools;
-  }
-  
-  const mcpTools = mcpManager.getTools();
+  const mcpTools = MCP_MANAGER.getTools();
   const grokMCPTools = mcpTools.map(convertMCPToolToGrokTool);
   
   return [...baseTools, ...grokMCPTools];

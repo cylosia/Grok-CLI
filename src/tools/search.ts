@@ -1,6 +1,5 @@
 import { spawn } from "child_process";
 import { ToolResult } from "../types/index.js";
-import { ConfirmationService } from "../utils/confirmation-service.js";
 import fs from "fs-extra";
 import * as path from "path";
 
@@ -41,7 +40,6 @@ interface RipgrepJsonLine {
 }
 
 export class SearchTool {
-  private confirmationService = ConfirmationService.getInstance();
   private currentDirectory: string = process.cwd();
 
   /**
@@ -393,7 +391,7 @@ export class SearchTool {
   private formatUnifiedResults(
     results: UnifiedSearchResult[],
     query: string,
-    searchType: string
+    _searchType: string
   ): string {
     if (results.length === 0) {
       return `No results found for "${query}"`;

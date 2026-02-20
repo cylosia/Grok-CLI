@@ -1,11 +1,10 @@
-import React from 'react';
 import { Text } from 'ink';
 import { marked } from 'marked';
 import TerminalRenderer from 'marked-terminal';
 
 // Configure marked to use the terminal renderer with default settings
 marked.setOptions({
-  renderer: new (TerminalRenderer as any)()
+  renderer: new TerminalRenderer()
 });
 
 export function MarkdownRenderer({ content }: { content: string }) {

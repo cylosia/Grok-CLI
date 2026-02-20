@@ -2,7 +2,6 @@ import { useState } from "react";
 import { GrokAgent, ChatEntry } from "../../agent/grok-agent.js";
 import { ChatHistory } from "./chat-history.js";
 import ConfirmationDialog from "./confirmation-dialog.js";
-import { Text } from "ink";
 
 interface ChatInterfaceProps {
   agent: GrokAgent;
@@ -18,9 +17,9 @@ interface ConfirmationOptions {
   content?: string;
 }
 
-const ChatInterface = ({ agent, initialMessage }: ChatInterfaceProps) => {
-  const [chatHistory, setChatHistory] = useState<ChatEntry[]>([]);
-  const [confirmationOptions, setConfirmationOptions] = useState<ConfirmationOptions | null>(null);
+const ChatInterface = ({ agent: _agent, initialMessage: _initialMessage }: ChatInterfaceProps) => {
+  const [chatHistory] = useState<ChatEntry[]>([]);
+  const [confirmationOptions] = useState<ConfirmationOptions | null>(null);
 
   return (
     <>

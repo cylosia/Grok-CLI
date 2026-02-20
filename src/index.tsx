@@ -1,8 +1,8 @@
-import React from "react";
 import { render } from "ink";
 import App from "./ui/app.js";
 import { GrokAgent } from "./agent/grok-agent.js";
 import { loadRuntimeConfig } from "./utils/runtime-config.js";
+import { getMCPManager } from "./grok/tools.js";
 
 (async () => {
   const args = process.argv.slice(2);
@@ -33,17 +33,30 @@ Full TUI launches automatically when TTY is detected.
   }
 
   let shuttingDown = false;
-  const shutdown = (signal: string) => {
+  const shutdown = async (signal: string) => {
     if (shuttingDown) {
       return;
     }
     shuttingDown = true;
     console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+
+    try {
+      const manager = getMCPManager();
+      const servers = manager.getServers();
+      await Promise.allSettled(servers.map((server) => manager.removeServer(server)));
+    } catch {
+      // Ignore shutdown cleanup errors and continue process termination.
+    }
+
     process.exit(0);
   };
 
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+  process.on("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
 
   // CLI Mode (MINGW64 / non-TTY safe)
   if (!process.stdout.isTTY || args.includes('--cli')) {
