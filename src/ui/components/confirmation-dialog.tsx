@@ -1,10 +1,10 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { DiffRenderer } from "./diff-renderer.js";
 
 interface ConfirmationDialogProps {
   operation: string;
-  filename: string;
+  filename: string | undefined;
   onConfirm: (dontAskAgain?: boolean) => void;
   onReject: (feedback?: string) => void;
   showVSCodeOpen?: boolean;
