@@ -145,9 +145,11 @@ export class ConfirmationService extends EventEmitter implements ConfirmationSer
             shell: false,
           });
 
-          child.on("error", reject);
-          child.unref();
-          resolve();
+          child.once("error", reject);
+          child.once("spawn", () => {
+            child.unref();
+            resolve();
+          });
         });
 
         return;

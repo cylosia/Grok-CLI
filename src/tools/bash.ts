@@ -27,7 +27,6 @@ const PATH_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   cat: new Set([]),
   mkdir: new Set([]),
   touch: new Set([]),
-  echo: new Set([]),
   pwd: new Set([]),
 };
 
