@@ -20,3 +20,22 @@ test("logger redacts bearer token value strings", () => {
   assert.match(warnings[0], /\[REDACTED\]/);
   assert.equal(warnings[0].includes("abcdefghijklmnopqrstuvwxyz123456"), false);
 });
+
+
+test("logger handles circular context objects without throwing", () => {
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (line?: unknown) => warnings.push(String(line));
+  const payload: { self?: unknown; nested?: { parent?: unknown } } = {};
+  payload.self = payload;
+  payload.nested = { parent: payload };
+
+  try {
+    logger.warn("circular-context", { component: "test", payload });
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /\[CIRCULAR\]/);
+});

@@ -33,20 +33,24 @@ function scrubSensitiveString(value: string): string {
   return output;
 }
 
-function sanitize(value: unknown, depth = 0): unknown {
+function sanitize(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
   if (depth > 5) {
     return "[TRUNCATED]";
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => sanitize(entry, depth + 1));
+    return value.map((entry) => sanitize(entry, depth + 1, seen));
   }
   if (value && typeof value === "object") {
+    if (seen.has(value)) {
+      return "[CIRCULAR]";
+    }
+    seen.add(value);
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => {
         if (SECRET_KEY_PATTERN.test(key)) {
           return [key, REDACTED];
         }
-        return [key, sanitize(child, depth + 1)];
+        return [key, sanitize(child, depth + 1, seen)];
       })
     );
   }

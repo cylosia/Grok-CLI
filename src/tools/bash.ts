@@ -4,6 +4,7 @@ import fs from 'fs-extra';
 import { ToolResult } from '../types/index.js';
 import { ConfirmationService } from '../utils/confirmation-service.js';
 import { isWithinRoot } from './path-safety.js';
+import { hasUnterminatedQuoteOrEscape, tokenizeBashLikeCommand } from './bash-tokenizer.js';
 
 const ALLOWED_COMMANDS = new Set([
   'git', 'ls', 'pwd', 'cat', 'mkdir', 'touch', 'echo', 'grep', 'find', 'rg'
@@ -64,9 +65,9 @@ export class BashTool {
 
   async execute(command: string, timeout = 30000): Promise<ToolResult> {
     const trimmedCommand = command.trim();
-    const tokens = this.tokenize(trimmedCommand);
+    const tokens = tokenizeBashLikeCommand(trimmedCommand);
     if (tokens.length === 0) {
-      if (this.hasUnterminatedQuoteOrEscape(trimmedCommand)) {
+      if (hasUnterminatedQuoteOrEscape(trimmedCommand)) {
         return { success: false, error: 'Command contains unterminated quote or escape sequence' };
       }
       return { success: false, error: 'Command cannot be empty' };
@@ -706,88 +707,6 @@ export class BashTool {
     }
 
     return { success: true };
-  }
-
-  private tokenize(command: string): string[] {
-    const tokens: string[] = [];
-    let current = "";
-    let quote: '"' | "'" | null = null;
-    let escaping = false;
-
-    for (const char of command) {
-      if (escaping) {
-        current += char;
-        escaping = false;
-        continue;
-      }
-
-      if (char === "\\") {
-        escaping = true;
-        continue;
-      }
-
-      if (quote) {
-        if (char === quote) {
-          quote = null;
-        } else {
-          current += char;
-        }
-        continue;
-      }
-
-      if (char === '"' || char === "'") {
-        quote = char;
-        continue;
-      }
-
-      if (/\s/.test(char)) {
-        if (current.length > 0) {
-          tokens.push(current);
-          current = "";
-        }
-        continue;
-      }
-
-      current += char;
-    }
-
-    if (escaping || quote) {
-      return [];
-    }
-
-    if (current.length > 0) {
-      tokens.push(current);
-    }
-
-    return tokens;
-  }
-
-  private hasUnterminatedQuoteOrEscape(command: string): boolean {
-    let quote: '"' | "'" | null = null;
-    let escaping = false;
-
-    for (const char of command) {
-      if (escaping) {
-        escaping = false;
-        continue;
-      }
-
-      if (char === "\\") {
-        escaping = true;
-        continue;
-      }
-
-      if (quote) {
-        if (char === quote) quote = null;
-        continue;
-      }
-
-      if (char === '"' || char === "'") {
-        quote = char;
-      }
-    }
-
-    return escaping || quote !== null;
   }
 
   private getGitSubcommand(args: string[]): string | undefined {

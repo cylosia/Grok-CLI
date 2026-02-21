@@ -127,14 +127,8 @@ export class MCPManager {
     if (!brandedName) {
       return;
     }
-    const server = this.servers.get(brandedName);
-    if (!server) {
-      return;
-    }
 
-    await server.client.close();
-    await server.transport.disconnect();
-    this.servers.delete(brandedName);
+    await this.teardownServerWithTimeout(brandedName);
   }
 
   getTools(): MCPTool[] {

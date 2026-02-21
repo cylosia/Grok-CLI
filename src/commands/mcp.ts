@@ -6,6 +6,7 @@ import chalk from 'chalk';
 import { createHash } from 'crypto';
 import { canonicalJsonStringify } from '../utils/canonical-json.js';
 import { sanitizeTerminalText } from '../utils/terminal-sanitize.js';
+import { logger } from '../utils/logger.js';
 
 
 const MAX_JSON_CONFIG_LENGTH = 64 * 1024;
@@ -15,7 +16,7 @@ const MAX_JSON_CONFIG_DEPTH = 20;
 const CLI_SECRET_ARG_KEY_PATTERN = /(token|api[-_]?key|secret|password|authorization|cookie)/i;
 const CLI_SECRET_ARG_VALUE_PATTERN = /^(?:bearer\s+)?[A-Za-z0-9_\-]{20,}$/i;
 
-function redactCliArg(arg: string): string {
+export function redactCliArg(arg: string): string {
   const [key, ...rest] = arg.split("=");
   if (rest.length > 0) {
     const value = rest.join("=");
@@ -101,6 +102,15 @@ function getServerFingerprint(config: MCPServerConfig): string {
     command: config.command,
     args: config.args,
   })).digest('hex');
+}
+
+function logMcpCommandError(action: string, error: unknown, extras: Record<string, unknown> = {}): void {
+  logger.error("mcp-command-failed", {
+    component: "commands-mcp",
+    action,
+    error: error instanceof Error ? error.message : String(error),
+    ...extras,
+  });
 }
 
 async function addServerAtomically(name: string, config: MCPServerConfig): Promise<void> {
@@ -203,6 +213,7 @@ export function createMCPCommand(): Command {
         console.log(chalk.blue(`  Available tools: ${tools.length}`));
 
       } catch (error: unknown) {
+        logMcpCommandError('add', error, { server: name });
         console.error(chalk.red(`Error adding MCP server: ${error instanceof Error ? error.message : String(error)}`));
         process.exitCode = 1;
       }
@@ -246,6 +257,7 @@ export function createMCPCommand(): Command {
         console.log(chalk.blue(`  Available tools: ${tools.length}`));
 
       } catch (error: unknown) {
+        logMcpCommandError('add', error, { server: name });
         console.error(chalk.red(`Error adding MCP server: ${error instanceof Error ? error.message : String(error)}`));
         process.exitCode = 1;
       }
@@ -263,6 +275,7 @@ export function createMCPCommand(): Command {
         await removeTrustedMCPServerFingerprint(name);
         console.log(chalk.green(`✓ Removed MCP server: ${name}`));
       } catch (error: unknown) {
+        logMcpCommandError('remove', error, { server: name });
         console.error(chalk.red(`Error removing MCP server: ${error instanceof Error ? error.message : String(error)}`));
         process.exitCode = 1;
       }
@@ -304,7 +317,7 @@ export function createMCPCommand(): Command {
           }
         } else if (server.command) {
           // Legacy format
-          console.log(`  Command: ${sanitizeTerminalText(server.command)} ${(server.args || []).map((arg) => sanitizeTerminalText(arg)).join(' ')}`);
+          console.log(`  Command: ${sanitizeTerminalText(server.command)} ${(server.args || []).map((arg) => sanitizeTerminalText(redactCliArg(arg))).join(' ')}`);
         }
         
         if (isConnected) {
@@ -361,6 +374,7 @@ export function createMCPCommand(): Command {
         }
 
       } catch (error: unknown) {
+        logMcpCommandError('test', error, { server: name });
         console.error(chalk.red(`✗ Failed to connect to ${name}: ${error instanceof Error ? error.message : String(error)}`));
         process.exitCode = 1;
       }
