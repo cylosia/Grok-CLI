@@ -24,6 +24,10 @@ module.exports = [
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-floating-promises': ['error', { ignoreVoid: true }],
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-new-func': 'error',
+      'no-script-url': 'error',
     },
   },
   {

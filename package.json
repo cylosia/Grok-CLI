@@ -12,7 +12,8 @@
     "test": "npm run -s typecheck && npm run -s test:unit",
     "audit:ci": "npm audit --audit-level=high",
     "test:unit": "tsx --test test/**/*.test.ts",
-    "lint": "eslint src test --ext .ts,.tsx"
+    "lint": "eslint src test --ext .ts,.tsx",
+    "sbom:generate": "mkdir -p sbom && npm ls --all --json > sbom/npm-sbom.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",

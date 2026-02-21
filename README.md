@@ -461,3 +461,8 @@ bun run typecheck
 
 MIT
 # Grok-CLI
+
+## Security operations
+
+- Dependency vulnerability and SBOM policy: `docs/DEPENDENCY_SECURITY.md`.
+

@@ -33,6 +33,9 @@ function sanitize(value: unknown, depth = 0): unknown {
 function safeJsonStringify(value: unknown): string {
   const seen = new WeakSet<object>();
   return JSON.stringify(value, (_key, currentValue) => {
+    if (typeof currentValue === "bigint") {
+      return currentValue.toString();
+    }
     if (currentValue && typeof currentValue === "object") {
       if (seen.has(currentValue)) {
         return "[CIRCULAR]";
