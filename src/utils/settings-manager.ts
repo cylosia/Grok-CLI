@@ -7,6 +7,71 @@ import { logger } from "./logger.js";
 const SETTINGS_VERSION = 4;
 const MAX_SETTINGS_FILE_BYTES = 1_000_000;
 const BLOCKED_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const PRIVATE_HOST_PATTERN = /(^localhost$|\.local$)/i;
+
+function parseIpv4(host: string): [number, number, number, number] | null {
+  const parts = host.split(".").map((segment) => Number(segment));
+  if (parts.length !== 4 || parts.some((value) => Number.isNaN(value) || value < 0 || value > 255)) {
+    return null;
+  }
+  return [parts[0], parts[1], parts[2], parts[3]];
+}
+
+function isPrivateIpv4(host: string): boolean {
+  const parsed = parseIpv4(host);
+  if (!parsed) {
+    return false;
+  }
+  const [a, b] = parsed;
+  return a === 10
+    || a === 127
+    || (a === 192 && b === 168)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 169 && b === 254);
+}
+
+function isPrivateIpv6(host: string): boolean {
+  const normalized = host.toLowerCase();
+  if (normalized === "::1") {
+    return true;
+  }
+  if (normalized.startsWith("::ffff:")) {
+    return isPrivateIpv4(normalized.slice("::ffff:".length));
+  }
+  return normalized.startsWith("fc")
+    || normalized.startsWith("fd")
+    || normalized.startsWith("fe80:");
+}
+
+function isPrivateHost(hostname: string): boolean {
+  if (PRIVATE_HOST_PATTERN.test(hostname)) {
+    return true;
+  }
+  return hostname.includes(":") ? isPrivateIpv6(hostname) : isPrivateIpv4(hostname);
+}
+
+export function sanitizeAndValidateBaseUrl(rawValue: string): string {
+  const trimmed = rawValue.trim();
+  const parsed = new URL(trimmed);
+  const scheme = parsed.protocol.toLowerCase();
+  const allowInsecure = process.env.GROK_ALLOW_INSECURE_BASE_URL === "1";
+  const allowPrivate = process.env.GROK_ALLOW_PRIVATE_BASE_URL === "1";
+
+  if (scheme !== "https:" && !(allowInsecure && scheme === "http:")) {
+    throw new Error(`Unsupported GROK base URL scheme: ${parsed.protocol}`);
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error("GROK base URL must not include URL credentials");
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (isPrivateHost(hostname) && !allowPrivate) {
+    throw new Error("Private-network GROK base URL requires GROK_ALLOW_PRIVATE_BASE_URL=1");
+  }
+
+  return parsed.toString();
+}
 
 function toSafeObjectRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object") {
@@ -262,7 +327,8 @@ export class SettingsManager {
   }
 
   public getBaseURL(): string {
-    return process.env.GROK_BASE_URL || this.loadUserSettings().baseURL || DEFAULT_USER_SETTINGS.baseURL || "https://api.x.ai/v1";
+    const configured = process.env.GROK_BASE_URL || this.loadUserSettings().baseURL || DEFAULT_USER_SETTINGS.baseURL || "https://api.x.ai/v1";
+    return sanitizeAndValidateBaseUrl(configured);
   }
 
   public async updateUserSetting<K extends keyof UserSettings>(key: K, value: UserSettings[K]): Promise<void> {

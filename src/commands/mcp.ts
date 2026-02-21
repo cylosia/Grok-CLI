@@ -10,6 +10,27 @@ import { canonicalJsonStringify } from '../utils/canonical-json.js';
 const MAX_JSON_CONFIG_LENGTH = 64 * 1024;
 const MAX_JSON_CONFIG_DEPTH = 20;
 
+
+const CLI_SECRET_ARG_KEY_PATTERN = /(token|api[-_]?key|secret|password|authorization|cookie)/i;
+const CLI_SECRET_ARG_VALUE_PATTERN = /^(?:bearer\s+)?[A-Za-z0-9_\-]{20,}$/i;
+
+function redactCliArg(arg: string): string {
+  const [key, ...rest] = arg.split("=");
+  if (rest.length > 0) {
+    const value = rest.join("=");
+    if (CLI_SECRET_ARG_KEY_PATTERN.test(key) || CLI_SECRET_ARG_VALUE_PATTERN.test(value)) {
+      return `${key}=[REDACTED]`;
+    }
+    return arg;
+  }
+
+  if (CLI_SECRET_ARG_VALUE_PATTERN.test(arg)) {
+    return "[REDACTED]";
+  }
+
+  return arg;
+}
+
 function getJsonDepth(value: unknown, depth = 0): number {
   if (depth > MAX_JSON_CONFIG_DEPTH) {
     return depth;
@@ -274,7 +295,8 @@ export function createMCPCommand(): Command {
         if (server.transport) {
           console.log(`  Transport: ${server.transport.type}`);
           if (server.transport.type === 'stdio') {
-            console.log(`  Command: ${server.transport.command} ${(server.transport.args || []).join(' ')}`);
+            const redactedArgs = (server.transport.args || []).map((arg) => redactCliArg(arg));
+            console.log(`  Command: ${server.transport.command} ${redactedArgs.join(' ')}`);
           } else if (server.transport.type === 'http' || server.transport.type === 'sse') {
             console.log(`  URL: ${server.transport.url}`);
           }

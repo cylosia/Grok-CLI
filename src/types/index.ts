@@ -64,3 +64,13 @@ export function asToolCallId(value: string): ToolCallId {
 export function asConfirmationRequestId(value: string): ConfirmationRequestId {
   return value as ConfirmationRequestId;
 }
+
+
+const TASK_ID_PATTERN = /^[a-zA-Z0-9._:-]{1,128}$/;
+
+export function parseTaskId(value: string): TaskId | null {
+  if (!TASK_ID_PATTERN.test(value)) {
+    return null;
+  }
+  return value as TaskId;
+}

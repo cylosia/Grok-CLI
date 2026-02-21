@@ -36,8 +36,8 @@ const MAX_FIND_DEPTH = 8;
 const MAX_SEARCH_MATCHES = 500;
 const GIT_ALLOWED_SUBCOMMANDS = new Set([
   'status', 'diff', 'log', 'show', 'rev-parse', 'branch', 'checkout',
-  'switch', 'add', 'reset', 'restore', 'commit', 'push', 'pull', 'fetch',
-  'merge', 'rebase', 'tag', 'remote', 'stash', 'cherry-pick'
+  'switch', 'add', 'reset', 'restore', 'commit',
+  'merge', 'rebase', 'tag', 'stash', 'cherry-pick'
 ]);
 const GIT_PATH_BEARING_FLAGS = new Set([
   '-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--exec-path'
