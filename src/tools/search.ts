@@ -5,6 +5,7 @@ import * as path from "path";
 import { logger } from "../utils/logger.js";
 import { sanitizeTerminalText } from "../utils/terminal-sanitize.js";
 import { isWithinRoot } from "./path-safety.js";
+import { killProcessTree } from "../utils/process-tree.js";
 
 const MAX_RG_OUTPUT_BYTES = 2_000_000;
 const RG_TIMEOUT_MS = 30_000;
@@ -213,7 +214,9 @@ export class SearchTool {
       // Add query and search directory; "--" prevents query tokens from being parsed as flags
       args.push("--", query, this.currentDirectory);
 
-      const rg = spawn("rg", args);
+      const rg = spawn("rg", args, {
+        detached: process.platform !== "win32",
+      });
       let output = "";
       let errorOutput = "";
       let outputTruncated = false;
@@ -224,9 +227,9 @@ export class SearchTool {
 
       const timeoutHandle = setTimeout(() => {
         timedOut = true;
-        rg.kill("SIGTERM");
+        killProcessTree(rg.pid ?? 0, "SIGTERM");
         forceKillTimer = setTimeout(() => {
-          rg.kill("SIGKILL");
+          killProcessTree(rg.pid ?? 0, "SIGKILL");
         }, 1_500);
       }, RG_TIMEOUT_MS);
 
@@ -250,7 +253,7 @@ export class SearchTool {
         output = appended.next;
         outputBytes = appended.bytes;
         if (outputTruncated) {
-          rg.kill("SIGTERM");
+          killProcessTree(rg.pid ?? 0, "SIGTERM");
         }
       });
 

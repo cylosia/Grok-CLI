@@ -2,6 +2,7 @@ import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { EventEmitter } from "events";
 import { validateMcpUrl } from "./url-policy.js";
+import { killProcessTree } from "../utils/process-tree.js";
 
 export type TransportType = 'stdio' | 'http' | 'sse';
 
@@ -51,6 +52,7 @@ function parseBoundedMcpEnvInt(
 export interface MCPTransport {
   connect(): Promise<Transport>;
   disconnect(): Promise<void>;
+  forceDisconnect(): Promise<void>;
   getType(): TransportType;
 }
 
@@ -137,6 +139,15 @@ export class StdioTransport implements MCPTransport {
 
   }
 
+  async forceDisconnect(): Promise<void> {
+    const internal = this.transport as unknown as { process?: { pid?: number } } | null;
+    const pid = internal?.process?.pid;
+    if (typeof pid === "number") {
+      killProcessTree(pid, "SIGKILL");
+    }
+    await this.disconnect();
+  }
+
   getType(): TransportType {
     return 'stdio';
   }
@@ -165,6 +176,10 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
     // No-op while transport is disabled.
   }
 
+  async forceDisconnect(): Promise<void> {
+    // No-op while transport is disabled.
+  }
+
   getType(): TransportType {
     return 'http';
   }
@@ -190,6 +205,10 @@ export class SSETransport extends EventEmitter implements MCPTransport {
   }
 
   async disconnect(): Promise<void> {
+    // No-op while transport is disabled.
+  }
+
+  async forceDisconnect(): Promise<void> {
     // No-op while transport is disabled.
   }
 

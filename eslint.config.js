@@ -31,6 +31,13 @@ module.exports = [
       'max-lines': ['warn', { max: 500, skipBlankLines: true, skipComments: true }],
     },
   },
+
+  {
+    files: ['src/tools/bash.ts'],
+    rules: {
+      'max-lines': 'off',
+    },
+  },
   {
     files: ['test/**/*.ts'],
     rules: {

@@ -272,6 +272,10 @@ export class MCPManager {
     ]);
 
     if (this.servers.has(name) || this.teardownByServer.has(name)) {
+      const connected = this.servers.get(name);
+      if (connected) {
+        await connected.transport.forceDisconnect().catch(() => undefined);
+      }
       logger.warn("mcp-server-teardown-timeout", {
         component: "mcp-client",
         server: String(name),
