@@ -4,6 +4,7 @@ import { GrokAgent } from "./agent/grok-agent.js";
 import { loadRuntimeConfig } from "./utils/runtime-config.js";
 import { getMCPManager } from "./grok/tools.js";
 import { logger, safeJsonStringify } from "./utils/logger.js";
+import { getCliVersion } from "./utils/version.js";
 
 const SHUTDOWN_TIMEOUT_MS = 5_000;
 
@@ -32,7 +33,7 @@ Full TUI launches automatically when TTY is detected.
   }
 
   if (args.includes('--version')) {
-    process.stdout.write("v2.0.0\n");
+    process.stdout.write(`v${getCliVersion()}\n`);
     return;
   }
 

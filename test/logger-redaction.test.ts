@@ -39,3 +39,20 @@ test("logger handles circular context objects without throwing", () => {
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /\[CIRCULAR\]/);
 });
+
+
+test("logger redacts short high-entropy token-like strings", () => {
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (line?: unknown) => warnings.push(String(line));
+  const secret = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  try {
+    logger.warn("possible-secret", { component: "test", detail: secret });
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /\[REDACTED\]/);
+  assert.equal(warnings[0].includes(secret), false);
+});

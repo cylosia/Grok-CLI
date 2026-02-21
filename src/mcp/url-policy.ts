@@ -1,6 +1,26 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
+const DNS_LOOKUP_TIMEOUT_MS = 2_000;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(message));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
 function parseIpv4(host: string): [number, number, number, number] | null {
   const parts = host.split(".").map((segment) => Number(segment));
   if (parts.length !== 4 || parts.some((value) => Number.isNaN(value) || value < 0 || value > 255)) {
@@ -57,7 +77,11 @@ async function resolveHostAddresses(host: string): Promise<string[]> {
   }
 
   try {
-    const results = await lookup(host, { all: true, verbatim: true });
+    const results = await withTimeout(
+      lookup(host, { all: true, verbatim: true }),
+      DNS_LOOKUP_TIMEOUT_MS,
+      `DNS lookup timed out for host ${host} after ${DNS_LOOKUP_TIMEOUT_MS}ms`
+    );
     if (!results.length) {
       throw new Error("No DNS records returned");
     }
