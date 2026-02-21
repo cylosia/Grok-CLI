@@ -209,8 +209,8 @@ export class SearchTool {
         "!*.log"
       );
 
-      // Add query and search directory
-      args.push(query, this.currentDirectory);
+      // Add query and search directory; "--" prevents query tokens from being parsed as flags
+      args.push("--", query, this.currentDirectory);
 
       const rg = spawn("rg", args);
       let output = "";
@@ -218,6 +218,8 @@ export class SearchTool {
       let outputTruncated = false;
       let timedOut = false;
       let forceKillTimer: NodeJS.Timeout | undefined;
+      let outputBytes = 0;
+      let errorOutputBytes = 0;
 
       const timeoutHandle = setTimeout(() => {
         timedOut = true;
@@ -227,28 +229,34 @@ export class SearchTool {
         }, 1_500);
       }, RG_TIMEOUT_MS);
 
-      const appendWithCap = (current: string, chunk: string): string => {
-        if (current.length >= MAX_RG_OUTPUT_BYTES) {
+      const appendWithCap = (current: string, chunk: string, currentBytes: number): { next: string; bytes: number } => {
+        if (currentBytes >= MAX_RG_OUTPUT_BYTES) {
           outputTruncated = true;
-          return current;
+          return { next: current, bytes: currentBytes };
         }
-        const allowed = MAX_RG_OUTPUT_BYTES - current.length;
-        if (chunk.length <= allowed) {
-          return current + chunk;
+        const chunkBytes = Buffer.byteLength(chunk, "utf8");
+        const allowedBytes = MAX_RG_OUTPUT_BYTES - currentBytes;
+        if (chunkBytes <= allowedBytes) {
+          return { next: current + chunk, bytes: currentBytes + chunkBytes };
         }
         outputTruncated = true;
-        return current + chunk.slice(0, allowed);
+        const clipped = Buffer.from(chunk, "utf8").subarray(0, allowedBytes).toString("utf8");
+        return { next: current + clipped, bytes: MAX_RG_OUTPUT_BYTES };
       };
 
       rg.stdout.on("data", (data) => {
-        output = appendWithCap(output, String(data));
+        const appended = appendWithCap(output, String(data), outputBytes);
+        output = appended.next;
+        outputBytes = appended.bytes;
         if (outputTruncated) {
           rg.kill("SIGTERM");
         }
       });
 
       rg.stderr.on("data", (data) => {
-        errorOutput = appendWithCap(errorOutput, String(data));
+        const appended = appendWithCap(errorOutput, String(data), errorOutputBytes);
+        errorOutput = appended.next;
+        errorOutputBytes = appended.bytes;
       });
 
       rg.on("close", (code) => {
@@ -264,7 +272,7 @@ export class SearchTool {
         }
         if (code === 0 || code === 1) {
           // 0 = found, 1 = not found
-          const results = this.parseRipgrepOutput(output);
+          const results = this.parseRipgrepOutput(output, query);
           resolve(results);
         } else {
           reject(new Error(`Ripgrep failed with code ${code}: ${errorOutput}`));
@@ -282,12 +290,15 @@ export class SearchTool {
   /**
    * Parse ripgrep JSON output into SearchResult objects
    */
-  private parseRipgrepOutput(output: string): SearchResult[] {
+  private parseRipgrepOutput(output: string, query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lines = output
       .trim()
       .split("\n")
       .filter((line) => line.length > 0);
+
+    let invalidLines = 0;
+    let firstParseError: string | undefined;
 
     for (const line of lines) {
       try {
@@ -303,11 +314,20 @@ export class SearchTool {
           });
         }
       } catch (error) {
-        logger.warn("search-invalid-rg-json-line", {
-          component: "search-tool",
-          error: error instanceof Error ? error.message : String(error),
-        });
+        invalidLines += 1;
+        if (!firstParseError) {
+          firstParseError = error instanceof Error ? error.message : String(error);
+        }
       }
+    }
+
+    if (invalidLines > 0) {
+      logger.warn("search-invalid-rg-json-output", {
+        component: "search-tool",
+        invalidLineCount: invalidLines,
+        query,
+        firstParseError,
+      });
     }
 
     return results;
