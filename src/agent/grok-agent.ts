@@ -88,6 +88,7 @@ export class GrokAgent extends EventEmitter {
   private supervisor: AgentSupervisor | null;
   private processingQueue: Promise<void> = Promise.resolve();
   private isProcessing = false;
+  private hasPendingOperation = false;
 
   private safeSerializeToolData(data: unknown): string {
     const seen = new WeakSet<object>();
@@ -177,9 +178,10 @@ export class GrokAgent extends EventEmitter {
   }
 
   private async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.isProcessing) {
+    if (this.hasPendingOperation || this.isProcessing) {
       throw new Error("Agent is already processing another request");
     }
+    this.hasPendingOperation = true;
     const previous = this.processingQueue;
     let release: () => void = () => {};
     this.processingQueue = new Promise<void>((resolve) => {
@@ -191,6 +193,7 @@ export class GrokAgent extends EventEmitter {
       return await operation();
     } finally {
       this.isProcessing = false;
+      this.hasPendingOperation = false;
       release();
     }
   }

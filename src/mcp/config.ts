@@ -109,8 +109,8 @@ export async function removeMCPServer(serverName: string): Promise<void> {
 
 export function getTrustedMCPServerFingerprints(): Record<string, string> {
   const manager = getSettingsManager();
-  const projectSettings = manager.loadProjectSettings();
-  return projectSettings.trustedMcpServers || {};
+  const userSettings = manager.loadUserSettings();
+  return userSettings.trustedMcpServers || {};
 }
 
 export async function setTrustedMCPServerFingerprint(serverName: string, fingerprint: string): Promise<void> {
@@ -119,10 +119,10 @@ export async function setTrustedMCPServerFingerprint(serverName: string, fingerp
   }
 
   const manager = getSettingsManager();
-  const projectSettings = manager.loadProjectSettings();
-  const trusted = Object.assign(Object.create(null), projectSettings.trustedMcpServers || {}) as Record<string, string>;
+  const userSettings = manager.loadUserSettings();
+  const trusted = Object.assign(Object.create(null), userSettings.trustedMcpServers || {}) as Record<string, string>;
   trusted[serverName] = fingerprint;
-  await manager.updateProjectSetting('trustedMcpServers', trusted);
+  await manager.updateUserSetting('trustedMcpServers', trusted);
 }
 
 export async function removeTrustedMCPServerFingerprint(serverName: string): Promise<void> {
@@ -131,10 +131,10 @@ export async function removeTrustedMCPServerFingerprint(serverName: string): Pro
   }
 
   const manager = getSettingsManager();
-  const projectSettings = manager.loadProjectSettings();
-  const trusted = Object.assign(Object.create(null), projectSettings.trustedMcpServers || {}) as Record<string, string>;
+  const userSettings = manager.loadUserSettings();
+  const trusted = Object.assign(Object.create(null), userSettings.trustedMcpServers || {}) as Record<string, string>;
   delete trusted[serverName];
-  await manager.updateProjectSetting('trustedMcpServers', trusted);
+  await manager.updateUserSetting('trustedMcpServers', trusted);
 }
 
 export const PREDEFINED_SERVERS: Record<string, MCPServerConfig> = {};
