@@ -90,3 +90,16 @@ test("bash tool blocks non-allowlisted git subcommands", async () => {
 
   confirmations.resetSession();
 });
+
+
+test("bash tool blocks git network subcommands by policy", async () => {
+  const confirmations = ConfirmationService.getInstance();
+  confirmations.setSessionFlag("bashCommands", true);
+
+  const tool = new BashTool();
+  const result = await tool.executeArgs("git", ["push"]);
+  assert.equal(result.success, false);
+  assert.match(result.error ?? "", /not allowed by policy/i);
+
+  confirmations.resetSession();
+});

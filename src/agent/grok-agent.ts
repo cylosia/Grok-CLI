@@ -10,7 +10,7 @@ import {
   ConfirmationTool,
   SearchTool,
 } from "../tools/index.js";
-import { TaskId, ToolResult } from "../types/index.js";
+import { TaskId, ToolResult, parseTaskId } from "../types/index.js";
 import { createTokenCounter, TokenCounter } from "../utils/token-counter.js";
 import { loadCustomInstructions } from "../utils/custom-instructions.js";
 import { getSettingsManager } from "../utils/settings-manager.js";
@@ -415,8 +415,20 @@ export class GrokAgent extends EventEmitter {
       return { success: false, error: "Supervisor is disabled for this agent instance" };
     }
 
-    const typedTask = {
-      id: (task.id || `task_${Date.now()}`) as TaskId,
+    const candidateTaskId = task.id || `task_${Date.now()}`;
+    const parsedTaskId = parseTaskId(candidateTaskId);
+    if (!parsedTaskId) {
+      return { success: false, error: `Invalid task id: ${candidateTaskId}` };
+    }
+
+    const typedTask: {
+      id: TaskId;
+      type: "edit" | "git" | "search" | "mcp" | "reason";
+      payload: Record<string, unknown>;
+      priority: number;
+      context?: Record<string, unknown>;
+    } = {
+      id: parsedTaskId,
       type: task.type || "reason",
       payload: task.payload || {},
       priority: typeof task.priority === "number" ? task.priority : 0,

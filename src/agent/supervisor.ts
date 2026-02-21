@@ -1,3 +1,4 @@
+import { TaskId, parseTaskId } from "../types/index.js";
 import { EventEmitter } from "events";
 import { GrokAgent } from "./grok-agent.js";
 import { Repomap2 } from "./repomap.js";
@@ -22,7 +23,7 @@ function redactForPrompt(value: unknown): unknown {
 }
 
 export interface Task {
-  id: string;
+  id: TaskId;
   type: "edit" | "git" | "search" | "mcp" | "reason";
   payload: Record<string, unknown>;
   priority: number;
@@ -37,9 +38,9 @@ export interface TaskResult {
 }
 
 export class AgentSupervisor extends EventEmitter {
-  private workers: Map<string, GrokAgent> = new Map();
+  private workers: Map<Task["type"], GrokAgent> = new Map();
   private repomap: Repomap2;
-  private activeTasks: Map<string, Task> = new Map();
+  private activeTasks: Map<TaskId, Task> = new Map();
 
   constructor(private apiKey: string) {
     super();
@@ -47,6 +48,10 @@ export class AgentSupervisor extends EventEmitter {
   }
 
   async executeTask(task: Task): Promise<TaskResult> {
+    if (!parseTaskId(String(task.id))) {
+      return { success: false, error: `Invalid task id: ${String(task.id)}` };
+    }
+
     const taskSnapshot: Task = {
       ...task,
       payload: { ...task.payload },
@@ -92,7 +97,7 @@ export class AgentSupervisor extends EventEmitter {
     }
   }
 
-  private async getOrCreateWorker(type: string): Promise<GrokAgent> {
+  private async getOrCreateWorker(type: Task["type"]): Promise<GrokAgent> {
     if (!this.workers.has(type)) {
       const worker = new GrokAgent(this.apiKey, undefined, undefined, undefined, false);
       this.workers.set(type, worker);

@@ -6,6 +6,20 @@ export interface LogContext {
 
 const REDACTED = "[REDACTED]";
 const SECRET_KEY_PATTERN = /(api[-_]?key|token|authorization|password|secret|cookie|session)/i;
+const SECRET_VALUE_PATTERNS = [
+  /-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/i,
+  /\b(?:sk|rk|pk)_[A-Za-z0-9]{16,}\b/,
+  /\bBearer\s+[A-Za-z0-9._\-~+/]+=*\b/i,
+  /\b[A-Fa-f0-9]{40,}\b/,
+];
+
+function scrubSensitiveString(value: string): string {
+  let output = value;
+  for (const pattern of SECRET_VALUE_PATTERNS) {
+    output = output.replace(pattern, REDACTED);
+  }
+  return output;
+}
 
 function sanitize(value: unknown, depth = 0): unknown {
   if (depth > 5) {
@@ -24,8 +38,12 @@ function sanitize(value: unknown, depth = 0): unknown {
       })
     );
   }
-  if (typeof value === "string" && value.length > 4096) {
-    return `${value.slice(0, 4096)}...[TRUNCATED]`;
+  if (typeof value === "string") {
+    const scrubbed = scrubSensitiveString(value);
+    if (scrubbed.length > 4096) {
+      return `${scrubbed.slice(0, 4096)}...[TRUNCATED]`;
+    }
+    return scrubbed;
   }
   return value;
 }

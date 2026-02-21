@@ -3,6 +3,7 @@ import { logger } from "../../utils/logger.js";
 import { Text, Box } from "ink";
 import { useInput } from "ink";
 import { AgentSupervisor } from "../../agent/supervisor.js";
+import { parseTaskId } from "../../types/index.js";
 
 interface CommandPaletteProps {
   supervisor: AgentSupervisor;
@@ -20,7 +21,14 @@ export const CommandPalette = ({ supervisor, onClose }: CommandPaletteProps) => 
     if (key.return && !isRunning) {
       setIsRunning(true);
       setError(null);
-      supervisor.executeTask({ id: "palette-" + Date.now(), type: "reason", payload: { query }, priority: 10 })
+      const taskId = parseTaskId(`palette-${Date.now()}`);
+      if (!taskId) {
+        setError("Unable to create task id");
+        setIsRunning(false);
+        return;
+      }
+
+      supervisor.executeTask({ id: taskId, type: "reason", payload: { query }, priority: 10 })
         .then((result) => {
           if (result.success) {
             onClose();
