@@ -1,107 +1,88 @@
-# Hostile Production Audit (TypeScript/PostgreSQL Checklist)
+# Hostile Production Audit (Financial-Grade)
 
-## Scope, verification, and constraints
-- Repository inventory: `rg --files`
-- Static and config checks:
-  - `npm run -s typecheck`
-  - `npm run -s lint`
-  - `npm test --silent`
-  - `npm audit --audit-level=high` (blocked by registry 403 in this environment)
-- Targeted deep reads (high-risk paths): `src/agent/grok-agent.ts`, `src/hooks/use-input-handler.impl.ts`, `src/tools/text-editor.impl.ts`, `src/tools/search.ts`, `src/utils/settings-manager.ts`, `src/mcp/*`, `src/grok/client.ts`, `tsconfig.json`, `eslint.config.js`, `package.json`.
+## Scope and verification
+- Repository walk: `rg --files`
+- Static checks executed:
+  - `npm run -s typecheck` ✅
+  - `npm run -s lint` ✅
+  - `npm test --silent` ✅
+  - `npm audit --audit-level=high` ⚠️ (registry endpoint returned 403 in this environment)
+- Focused file-by-file hostile pass across runtime-critical paths:
+  - Agent loop + tool orchestration: `src/agent/*.ts`, `src/grok/*.ts`
+  - Tooling sandbox and filesystem mutation paths: `src/tools/*.ts`
+  - MCP and URL trust boundaries: `src/mcp/*.ts`
+  - Persistence and config surfaces: `src/utils/settings-manager.ts`, `tsconfig.json`, `eslint.config.js`, `package.json`
 
-## PostgreSQL/SQL surgery status
-No PostgreSQL driver usage, SQL strings, migration framework, schema files, or DB access layer are present in this repository snapshot. All SQL-specific checks are N/A for this codebase revision.
+## PostgreSQL / SQL surgery status
+No PostgreSQL driver, SQL query layer, migrations, or schema files are present in this repository snapshot. SQL-specific checks are not applicable for this codebase revision.
 
 ---
 
 ## PHASE 1 — Systematic decomposition findings
 
 ### Critical (P0)
-
-1) **File:Line:Column:** `src/hooks/use-input-handler.impl.ts:687:11` and `src/agent/grok-agent.ts:230:3`
-- **Category:** Architecture | Async | Reliability
-- **Violation:** Streaming UI has a `tool_result` branch and mutates existing tool-call entries to finished results, but the stream producer never emits `tool_result` chunks and never executes returned tool calls in streaming mode.
-- **Concrete fix:** Refactor `processUserMessageStream()` to mirror non-stream path behavior: when tool calls arrive, execute each tool, emit `tool_result` chunks, append `role:"tool"` messages, then continue model turn loop until assistant final text or max tool rounds.
-- **Risk if not fixed:** Production dead-end where streaming sessions show “Executing...” forever (or no final answer), creating stuck user flows and operational incidents under normal tool-using prompts.
+- **None verified in current revision.**
 
 ### High (P1)
 
-2) **File:Line:Column:** `src/tools/text-editor.impl.ts:142:7`, `207:7`, `296:7`, `372:7`
-- **Category:** Security | Filesystem
-- **Violation:** TOCTOU window between `resolveSafePath()` checks and subsequent writes/removes; attacker-controlled symlink swaps can redirect writes after validation.
-- **Concrete fix:** Open files with `fs.open` + `O_NOFOLLOW` (or platform-safe equivalent), validate descriptor target via `fstat`, and perform writes through file descriptor. For create paths, resolve and lock parent directory inode before creation.
-- **Risk if not fixed:** Workspace escape/write-what-where if an attacker can mutate filesystem links concurrently (multi-process workstation threat model).
+1. **File:Line:Column:** `src/agent/grok-agent.ts:233:31`, `src/agent/grok-agent.ts:334:35`  
+   **Category:** Type | Reliability  
+   **Violation:** Tool output serialization uses raw `JSON.stringify(result.data || {})` in hot paths. If a tool returns `bigint` or circular structures, serialization throws and breaks message processing.  
+   **Concrete fix:** Replace with hardened serializer (e.g., replacer that stringifies bigint and handles circular refs) and fallback text (`"[unserializable tool payload]"`) when serialization fails.  
+   **Risk if not fixed:** Tool calls can crash a user turn under realistic payloads, causing dropped responses and session-level incident behavior.
 
-3) **File:Line:Column:** `src/tools/search.ts:208:18`
-- **Category:** Performance | Resilience
-- **Violation:** Spawned `rg` process has no wall-clock timeout; only output-size cap exists.
-- **Concrete fix:** Add timeout (e.g., 10–30s default) and terminate process with SIGTERM/SIGKILL fallback, returning a bounded error.
-- **Risk if not fixed:** Hung searches can pin sessions and consume resources indefinitely under pathological regex or filesystem stalls.
-
-4) **File:Line:Column:** `src/utils/settings-manager.ts:125:3`
-- **Category:** Data Integrity | Reliability
-- **Violation:** `enqueueWrite()` swallows write failures (`catch` logs warning) and API remains `void`, so callers cannot detect persistence failure.
-- **Concrete fix:** Return `Promise<void>` from save/update APIs and propagate failure to caller (or expose `flushWrites()` plus explicit error channel) so command handlers can fail fast.
-- **Risk if not fixed:** Silent settings loss/corruption; operators believe configuration was saved when disk write actually failed.
+2. **File:Line:Column:** `src/mcp/client.ts:216:24-221:12`  
+   **Category:** Async | Resilience  
+   **Violation:** MCP timeout promise rejects only after `teardownPromise.finally(...)` runs; if teardown itself stalls, timeout rejection can stall indefinitely.  
+   **Concrete fix:** Reject immediately on timeout (`reject(...)` first), then perform teardown in background (`void this.teardownServer(...)`) with independent logging and capped teardown timeout.  
+   **Risk if not fixed:** Hung MCP tool calls can still hang the caller despite timeout policy, degrading responsiveness and exhausting concurrent work slots.
 
 ### Medium (P2)
 
-5) **File:Line:Column:** `src/agent/grok-agent.ts:61:3` and `62:3`
-- **Category:** Performance | Resource
-- **Violation:** `chatHistory` and `messages` are unbounded arrays.
-- **Concrete fix:** Add configurable caps (token/window or message count), summarize/truncate older context, and cap retained UI history.
-- **Risk if not fixed:** Memory growth over long sessions; degraded latency or OOM in prolonged production runs.
+3. **File:Line:Column:** `src/utils/settings-manager.ts:161:9`, `173:9`, `247:9`  
+   **Category:** Data Integrity | Error Handling  
+   **Violation:** Startup/default persistence writes are launched with `void this.enqueueWrite(...)`; failures are only logged, not surfaced to callers at call site.  
+   **Concrete fix:** `await` these writes during bootstrap paths, or expose explicit initialization routine that fails hard when default settings cannot be persisted.  
+   **Risk if not fixed:** Silent config persistence failures (especially first-run) cause nondeterministic behavior across sessions.
 
-6) **File:Line:Column:** `src/agent/grok-agent.ts:316:47` and `318:47`
-- **Category:** Type
-- **Violation:** `args.todos as never[]` and `args.updates as never[]` bypass type safety at tool boundary.
-- **Concrete fix:** Replace casts with runtime schema validation (`zod`/manual type guards) and only pass validated `TodoItem[]`/`TodoUpdate[]`.
-- **Risk if not fixed:** Runtime type faults and malformed task state from LLM-generated payloads.
+4. **File:Line:Column:** `src/mcp/transports.ts:28:11`, `76:9`  
+   **Category:** Resource | Architecture  
+   **Violation:** `StdioTransport.process` is never assigned but is referenced in `disconnect()`, creating dead cleanup logic and uncertain child-process lifecycle assumptions.  
+   **Concrete fix:** Either remove `process` member entirely and rely on SDK close semantics, or wire actual process handle ownership and enforce kill+wait semantics in disconnect.  
+   **Risk if not fixed:** Process lifecycle bugs become difficult to reason about and can leak subprocesses under transport edge failures.
 
-7) **File:Line:Column:** `src/mcp/client.ts:65:24`
-- **Category:** Type | Domain Modeling
-- **Violation:** Branded identifier is bypassed via unchecked constructor `asMCPServerName(config.name)` instead of parser at trust boundary.
-- **Concrete fix:** Replace with `parseMCPServerName(config.name)` and reject invalid names before map insertion.
-- **Risk if not fixed:** Weakens nominal-type guarantees and allows drift between compile-time branding and runtime invariants.
+5. **File:Line:Column:** `src/mcp/url-policy.ts:74:29-87:25`  
+   **Category:** Security | Network boundary  
+   **Violation:** URL validation resolves DNS once and returns a string, but connection layer does not pin resolved IP; DNS rebinding remains possible between validation and connect in designs that later enable HTTP/SSE transports.  
+   **Concrete fix:** Bind validation to connection by pinning resolved addresses (or revalidating at connect against actual socket endpoint), and cache validation for a short TTL.  
+   **Risk if not fixed:** SSRF/private-network bypass risk when currently-disabled HTTP/SSE transports are re-enabled.
 
 ### Low (P3)
 
-8) **File:Line:Column:** `eslint.config.js:20:7`
-- **Category:** Quality
-- **Violation:** `@typescript-eslint/no-explicit-any` is warning-only in financial-grade policy context.
-- **Concrete fix:** Promote to `error`, and add rules for `no-floating-promises`, `switch-exhaustiveness-check`, and `no-unsafe-*` family.
-- **Risk if not fixed:** Type escapes and unsafe boundaries regress silently over time.
-
-9) **File:Line:Column:** `src/tools/todo-tool.ts:32:7` and `43:7`
-- **Category:** Type
-- **Violation:** Exhaustiveness relies on implicit union return, no `assertNever` guard.
-- **Concrete fix:** Add `default: return assertNever(status)` pattern with a local `assertNever` helper.
-- **Risk if not fixed:** Future status extension can compile-break unpredictably or introduce undefined behavior if strictness settings change.
+6. **File:Line:Column:** `package.json:1:1` + lockfiles  
+   **Category:** Supply-chain hygiene  
+   **Violation:** Repository contains both `package-lock.json` and `bun.lock`; without explicit policy enforcement this can introduce dependency drift across CI/dev environments.  
+   **Concrete fix:** Standardize package manager in CI (e.g., npm-only) and fail builds when non-canonical lockfile changes diverge.  
+   **Risk if not fixed:** Non-reproducible installs and hard-to-reproduce production discrepancies.
 
 ---
 
-## PHASE 2 — Adversarial second pass
+## PHASE 2 — Adversarial re-review (assume first pass missed bugs)
 
-Re-reviewed with assumption of missed defects:
-- **Obvious paths:** `grok-agent` main loop and stream loop parity.
-- **Catch blocks / failure paths:** settings write queue and search child-process lifecycle.
-- **Config/dependency surfaces:** `tsconfig.json`, `eslint.config.js`, `package.json`.
+Re-audited with targeted skepticism over:
+- “Obvious” happy paths: streaming and non-streaming tool result plumbing.
+- Catch/finally paths: MCP timeout handling and settings write queue.
+- Config surfaces: strictness and dependency hygiene in `tsconfig.json`, `eslint.config.js`, `package.json`.
 
 ### Phase-2 confirmations
-- Streaming/non-streaming behavior is materially inconsistent and is incident-grade in tool-heavy workflows.
-- Search subprocess lacks deadline controls despite byte caps.
-- Settings persistence still has acknowledge-without-durability semantics.
-- Type boundary safety is weakened by `never[]` casts in tool dispatch.
+- Serialization and timeout semantics remain the highest-risk runtime failure vectors.
+- Settings bootstrap writes still trade durability visibility for convenience.
+- Transport lifecycle ownership remains ambiguous in stdio wrapper code.
 
 ---
 
-## Immediate incident ranking (deploy-today blast radius)
+## Immediate production-incident ranking (if deployed today)
 
-1. **Streaming tool-result dead path (`grok-agent` + input handler)**  
-   **Blast radius:** All streaming chat users; prompts requiring tools can stall or return incomplete outputs.
-2. **TOCTOU in text editor writes**  
-   **Blast radius:** Local file integrity/security of workspace host under concurrent filesystem manipulation.
-3. **Unbounded ripgrep runtime**  
-   **Blast radius:** CLI responsiveness and worker slot exhaustion during broad/pathological searches.
-4. **Silent settings write failures**  
-   **Blast radius:** Persistent configuration reliability, trust fingerprints, and operational reproducibility.
+1. **Tool payload serialization crash (`grok-agent`)** — broad blast radius across any tool-enabled chat path; single malformed payload can break user turn completion.
+2. **MCP timeout not fail-fast (`mcp/client`)** — blast radius across MCP-backed features; hung calls can accumulate and degrade overall responsiveness.
+3. **Silent settings bootstrap write failures (`settings-manager`)** — blast radius on startup/config consistency; repeated “works on one machine” operational incidents.

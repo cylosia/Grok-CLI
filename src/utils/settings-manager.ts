@@ -72,6 +72,17 @@ function sanitizeUserSettings(value: unknown): Partial<UserSettings> {
   return sanitized;
 }
 
+
+
+function writeJsonFileSyncAtomic(filePath: string, value: object): void {
+  const dir = path.dirname(filePath);
+  fsSync.mkdirSync(dir, { recursive: true, mode: 0o700 });
+
+  const tempFilePath = `${filePath}.tmp`;
+  const serialized = JSON.stringify(value, null, 2);
+  fsSync.writeFileSync(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600 });
+  fsSync.renameSync(tempFilePath, filePath);
+}
 function sanitizeProjectSettings(value: unknown): Partial<ProjectSettings> {
   if (!value || typeof value !== "object") {
     return {};
@@ -158,7 +169,7 @@ export class SettingsManager {
       const rawSettings = this.readJsonFile(this.userSettingsPath);
       if (!rawSettings) {
         const mergedDefaults = { ...DEFAULT_USER_SETTINGS };
-        void this.enqueueWrite(this.userSettingsPath, mergedDefaults);
+        writeJsonFileSyncAtomic(this.userSettingsPath, mergedDefaults);
         this.userSettingsCache = mergedDefaults;
         return mergedDefaults;
       }
@@ -170,7 +181,7 @@ export class SettingsManager {
         const { apiKey, ...sanitized } = settings;
         void apiKey;
         const merged = { ...DEFAULT_USER_SETTINGS, ...sanitized };
-        void this.enqueueWrite(this.userSettingsPath, merged);
+        writeJsonFileSyncAtomic(this.userSettingsPath, merged);
         this.userSettingsCache = merged;
         return merged;
       }
@@ -244,7 +255,7 @@ export class SettingsManager {
       const rawSettings = this.readJsonFile(this.projectSettingsPath);
       if (!rawSettings) {
         const mergedDefaults = { ...DEFAULT_PROJECT_SETTINGS };
-        void this.enqueueWrite(this.projectSettingsPath, mergedDefaults);
+        writeJsonFileSyncAtomic(this.projectSettingsPath, mergedDefaults);
         this.projectSettingsCache = mergedDefaults;
         return mergedDefaults;
       }
