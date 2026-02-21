@@ -4,6 +4,7 @@ import { getMCPManager } from '../grok/tools.js';
 import { MCPServerConfig } from '../mcp/client.js';
 import chalk from 'chalk';
 import { createHash } from 'crypto';
+import { canonicalJsonStringify } from '../utils/canonical-json.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -55,7 +56,7 @@ function parseJsonServerConfig(raw: unknown): MCPServerConfig['transport'] {
 }
 
 function getServerFingerprint(config: MCPServerConfig): string {
-  return createHash('sha256').update(JSON.stringify({
+  return createHash('sha256').update(canonicalJsonStringify({
     name: config.name,
     transport: config.transport,
     command: config.command,

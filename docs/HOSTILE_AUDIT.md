@@ -7,75 +7,79 @@
   - `npm run -s lint` ✅
   - `npm test -s` ✅
 - Dependency/security gate:
-  - `npm run -s audit:ci` ⚠️ (registry returned `Forbidden` in this environment; no CVE verification available from this run).
+  - `npm run -s audit:ci` ⚠️ (registry denied access with `E403`, so CVE verification is incomplete in this environment).
 - PostgreSQL/SQL surface detection:
-  - `rg -n "\\b(pg|postgres|sql|SELECT|INSERT|UPDATE|DELETE|transaction|pool|knex|prisma|sequelize|typeorm)\\b" src test` returned no matches.
+  - `rg -n "\b(pg|postgres|sql|SELECT|INSERT|UPDATE|DELETE|transaction|pool|knex|prisma|sequelize|typeorm)\b" src test` returned no in-repo PostgreSQL implementation.
 
 ## Phase 1 — systematic decomposition findings
 
 ### Critical (P0)
-- **None verified in this snapshot.**
+1. **File:Line:Column** `src/mcp/client.ts:280:28`  
+   **Category** Security | Async | Architecture  
+   **Specific violation** `Promise.race([callPromise, timeoutPromise])` times out locally, tears down local transport, and rejects, but does not send protocol-level cancellation for the already-dispatched remote tool invocation. This creates a check-then-retry window where non-idempotent remote side effects can execute multiple times.  
+   **Concrete fix suggestion** Add MCP request IDs + explicit cancel RPC on timeout, and treat all non-idempotent tools as non-retriable until cancellation acknowledgement arrives. For tools lacking cancel support, enforce idempotency keys in `args` and server-side dedupe.  
+   **Risk if not fixed** Duplicate state mutations (e.g., writes, external actions) under latency spikes; incident class: data integrity/security breach in connected systems.
 
 ### High (P1)
+2. **File:Line:Column** `src/commands/mcp.ts:57:43` + `src/mcp/client.ts:62:35`  
+   **Category** Security | Availability  
+   **Specific violation** Server trust fingerprinting uses `JSON.stringify` of mutable object graphs; semantically identical configurations with reordered object keys produce different hashes. Manual edits or serializer differences can brick trusted servers as “untrusted.”  
+   **Concrete fix suggestion** Replace ad-hoc `JSON.stringify` with deterministic canonical JSON serialization (stable key sorting at every object level) before hashing, and include an explicit fingerprint schema version.  
+   **Risk if not fixed** False trust failures during restart/deploy and production outage for MCP-dependent workflows.
 
-1. **File:Line:Column** `src/mcp/client.ts:205:43`  
-   **Category** Type | Resilience  
-   **Specific violation** `buildCallKey()` hashes `JSON.stringify({ name, args })` directly. If `args` contains `bigint` (or circular structures), `JSON.stringify` throws before timeout/cooldown logic runs, causing deterministic tool-call failure and bypassing intended error pathing.  
-   **Concrete fix suggestion** Replace `JSON.stringify` with the same safe serializer pattern already used in `GrokAgent.safeSerializeToolData` (convert `bigint` to string and break circular refs), then hash serialized output.  
-   **Risk if not fixed** Tool invocations can hard-fail on valid large integer payloads; retry loops above this layer can trigger incident-level request storms.
+3. **File:Line:Column** `src/utils/settings-manager.ts:149:17` + `src/utils/settings-manager.ts:290:11`  
+   **Category** Concurrency | Data Integrity  
+   **Specific violation** Reads are synchronous and unsynchronized while writes are queued asynchronously. A read during queued write can observe stale data and immediately cache it (`userSettingsCache` / `projectSettingsCache`), creating last-writer-wins anomalies and stale config reuse windows.  
+   **Concrete fix suggestion** Serialize both reads and writes through a single async lock/queue per settings file (or use atomic version checks before cache replacement). On read, await pending write queue first.  
+   **Risk if not fixed** Intermittent configuration rollback behavior (model/env/MCP config drift), especially under concurrent command execution.
 
-2. **File:Line:Column** `src/mcp/client.ts:261:28`  
-   **Category** Async | Security | Architecture  
-   **Specific violation** `Promise.race([callPromise, timeoutPromise])` times out locally but does not guarantee remote cancellation. The timed-out call can still execute side effects server-side while caller may retry after cooldown.  
-   **Concrete fix suggestion** Add request-scoped cancellation contract: pass abort signal/request ID through transport, issue explicit cancel RPC on timeout, and mark non-idempotent tools as non-retriable unless cancellation acknowledgement is received.  
-   **Risk if not fixed** Duplicate writes / non-idempotent side effects in MCP integrations under latency spikes.
-
-3. **File:Line:Column** `src/mcp/url-policy.ts:120:50`  
-   **Category** Security  
-   **Specific violation** `allowLocalHttp` controls both local `http://` and private-network `https://` access. The env knob name (`GROK_ALLOW_LOCAL_MCP_HTTP`) suggests only HTTP loopback allowance, but current logic also permits private HTTPS endpoints.  
-   **Concrete fix suggestion** Split flags: `allowLocalHttp` (loopback-only HTTP) and `allowPrivateHttps` (explicit, separate opt-in). Enforce explicit variable naming and migration warning for old behavior.  
-   **Risk if not fixed** Operators can unintentionally widen SSRF/internal-network attack surface by enabling what appears to be a narrow HTTP-only override.
+4. **File:Line:Column** `src/utils/logger.ts:35:15`  
+   **Category** Observability | Resilience  
+   **Specific violation** Logger serialization does not handle `bigint`; `JSON.stringify` throws and logger falls back to a generic static line (`logger-serialization-failed`) losing original event payload at exactly the time high-fidelity telemetry is needed.  
+   **Concrete fix suggestion** Extend `safeJsonStringify` replacer to serialize `bigint` as string and preserve a truncated sanitized payload even on serialization failure.  
+   **Risk if not fixed** Incident debugging blind spots and delayed containment/forensics.
 
 ### Medium (P2)
-
-4. **File:Line:Column** `src/index.tsx:47:13`  
-   **Category** Resilience | Async  
-   **Specific violation** Shutdown path waits on `Promise.allSettled(servers.map(removeServer))` without a global deadline. A hung server teardown can block process exit indefinitely during SIGTERM/SIGINT handling.  
-   **Concrete fix suggestion** Add bounded shutdown deadline (e.g., 5s): race cleanup vs timer, log unfinished servers, then force exit with non-zero on timeout.  
-   **Risk if not fixed** Stuck process during deploy/termination windows; orchestrator kill escalation and messy partial shutdown behavior.
-
-5. **File:Line:Column** `src/agent/grok-agent.ts:73:1`  
+5. **File:Line:Column** `src/agent/grok-agent.ts:35:1`  
    **Category** Architecture | Testability  
-   **Specific violation** `GrokAgent` is a high-responsibility class (~500 lines) combining orchestration, tool dispatch, MCP init, memory/state, and streaming behaviors. This violates SRP and weakens test seam isolation.  
-   **Concrete fix suggestion** Split into components (`ToolExecutor`, `ConversationState`, `McpLifecycle`, `ResponseStreamer`) behind interfaces and inject dependencies via constructor.  
-   **Risk if not fixed** Regression risk scales nonlinearly with changes; incident fixes require broad retesting and increase mean time to recovery.
+   **Specific violation** `GrokAgent` remains a large orchestration class combining model I/O, tool execution, MCP lifecycle, memory, and streaming concerns. This violates SRP and weakens defect isolation.  
+   **Concrete fix suggestion** Extract `ToolExecutionService`, `McpLifecycleService`, and `ConversationCoordinator` interfaces; inject them into a thin agent facade.  
+   **Risk if not fixed** Elevated regression probability and slower incident patch velocity.
+
+6. **File:Line:Column** `src/tools/bash.ts:279:29`  
+   **Category** Security | Performance  
+   **Specific violation** Argument policy validates path-like arguments but does not bound glob/cardinality-heavy operations (`find . -type f`, broad `rg`/`grep`) beyond output truncation; expensive scans can still saturate CPU/IO despite capped output bytes.  
+   **Concrete fix suggestion** Add execution policy guards: max directory depth, max file count, and command-specific safe defaults (`rg --max-filesize`, optional `--max-count`) with explicit opt-in overrides.  
+   **Risk if not fixed** Resource exhaustion and degraded interactive latency under malicious or accidental broad commands.
 
 ### Low (P3)
+7. **File:Line:Column** `eslint.config.js:24:7`  
+   **Category** Quality Gate | Security hygiene  
+   **Specific violation** Lint rules enforce TS rigor but omit security-focused rulesets (no taint/source-sink linting, no regexp DOS checks, no hardcoded secret detection).  
+   **Concrete fix suggestion** Add security lint profile (e.g., eslint-plugin-security + custom banned-pattern rules) to CI fail gates.  
+   **Risk if not fixed** Preventable classes of security defects rely entirely on manual review.
 
-6. **File:Line:Column** `package.json:14:5`  
+8. **File:Line:Column** `package.json:12:5`  
    **Category** Ops | Supply chain  
-   **Specific violation** Security audit capability is present (`audit:ci`) but no lockfile policy/CI evidence in-repo enforces successful execution before release. In this environment, audit failed with `Forbidden`, leaving dependency risk opaque.  
-   **Concrete fix suggestion** Add CI-required job that runs `npm ci && npm audit --audit-level=high` against an internal mirror; fail release builds on unresolved high/critical CVEs.  
-   **Risk if not fixed** Critical dependency vulnerabilities can ship unnoticed.
+   **Specific violation** `audit:ci` exists but cannot enforce in this runtime due registry auth; no in-repo documented fallback (mirror/SBOM/signature policy) is present.  
+   **Concrete fix suggestion** Enforce `npm ci --ignore-scripts && npm audit --audit-level=high` against an authenticated internal mirror in release CI, and publish an SBOM artifact.  
+   **Risk if not fixed** Critical dependency CVEs can pass release unnoticed.
 
 ## Phase 2 — adversarial re-review
+- Re-checked “obvious” areas: timeout/cancellation paths (`src/mcp/client.ts`), trust hashing (`src/commands/mcp.ts`, `src/mcp/client.ts`), and settings persistence (`src/utils/settings-manager.ts`).
+- Re-checked error paths/catch blocks and global process handlers (`src/index.tsx`, `src/utils/logger.ts`).
+- Re-checked configs and dependency controls (`tsconfig.json`, `eslint.config.js`, `package.json`).
 
-Re-audited focus areas after first pass:
-- "Obvious" code paths: URL policy, MCP timeout/error handling, process shutdown.
-- Error/catch flows and teardown behavior in MCP manager.
-- Config and policy files: `tsconfig.json`, `eslint.config.js`, `package.json`.
-- Test coverage edge assumptions in MCP + bash + settings test suites.
+### Phase 2 conclusion
+- No PostgreSQL code artifacts are present in this repository snapshot; all SQL-specific findings requested are **N/A by code absence**.
+- The highest-risk production incidents today are around MCP timeout semantics and trust/config consistency.
 
-Second-pass conclusion:
-- No PostgreSQL implementation artifacts (queries, migrations, ORM schemas, pooling, transaction code) exist in this repo snapshot; SQL-specific findings are **N/A for current codebase contents**.
-- Highest operational risks remain timeout/cancellation semantics and shutdown boundedness.
-
-## Immediate incident ranking if deployed today (with blast radius)
-1. **P1 – MCP timeout without real cancellation** (`src/mcp/client.ts:261`)  
-   **Blast radius:** Any mutating MCP tool call under latency/degradation; can cause duplicate remote actions.
-2. **P1 – `allowLocalHttp` also unlocks private HTTPS** (`src/mcp/url-policy.ts:120`)  
-   **Blast radius:** Any environment with local override enabled; private network exposure/SSRF expansion.
-3. **P1 – BigInt/circular crash in call-key hashing** (`src/mcp/client.ts:205`)  
-   **Blast radius:** Tool invocation pipeline when payloads include large integers or structured objects.
-4. **P2 – Unbounded shutdown wait on server teardown** (`src/index.tsx:47`)  
-   **Blast radius:** All runtime modes during termination/redeploys.
+## Immediate production-incident ranking (if deployed as-is)
+1. **P0 — Timeout without remote cancellation** (`src/mcp/client.ts:280`)  
+   **Blast radius:** All mutating MCP tool integrations under network degradation; duplicate external side effects possible.
+2. **P1 — Non-deterministic trust fingerprints** (`src/commands/mcp.ts:57`, `src/mcp/client.ts:62`)  
+   **Blast radius:** Any environment where MCP server config is edited/reformatted; startup/connectivity failures.
+3. **P1 — Settings read/write race windows** (`src/utils/settings-manager.ts:149`, `src/utils/settings-manager.ts:290`)  
+   **Blast radius:** CLI sessions issuing concurrent config updates; stale/rolled-back settings behavior.
+4. **P1 — Logger bigint serialization blind spot** (`src/utils/logger.ts:35`)  
+   **Blast radius:** Cross-cutting incident observability whenever bigint enters structured logs.

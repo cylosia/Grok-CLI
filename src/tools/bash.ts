@@ -31,6 +31,8 @@ const PATH_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
 
 const UNSAFE_SHELL_METACHARS = /[;&|><`\n\r]/;
 const MAX_OUTPUT_BYTES = 1_000_000;
+const MAX_FIND_DEPTH = 8;
+const MAX_SEARCH_MATCHES = 500;
 
 export class BashTool {
   private workspaceRoot: string = process.cwd();
@@ -380,18 +382,30 @@ export class BashTool {
 
   private validateCommandSpecificArgs(command: string, args: string[]): ToolResult {
     const blocked = BLOCKED_FLAGS_BY_COMMAND[command];
-    if (!blocked) {
-      return { success: true };
+    if (blocked) {
+      for (const arg of args) {
+        const normalized = arg.split('=')[0];
+        if (blocked.has(normalized)) {
+          return {
+            success: false,
+            error: `Flag is blocked by policy for ${command}: ${normalized}`,
+          };
+        }
+      }
     }
 
-    for (const arg of args) {
-      const normalized = arg.split('=')[0];
-      if (blocked.has(normalized)) {
-        return {
-          success: false,
-          error: `Flag is blocked by policy for ${command}: ${normalized}`,
-        };
-      }
+    if (command === 'find' && !args.includes('-maxdepth')) {
+      return {
+        success: false,
+        error: `find requires -maxdepth <= ${MAX_FIND_DEPTH} to prevent runaway scans`,
+      };
+    }
+
+    if ((command === 'grep' || command === 'rg') && !args.includes('--max-count')) {
+      return {
+        success: false,
+        error: `${command} requires --max-count <= ${MAX_SEARCH_MATCHES} to prevent runaway scans`,
+      };
     }
 
     return { success: true };
@@ -460,10 +474,10 @@ export class BashTool {
   }
 
   async findFiles(pattern: string, directory = '.'): Promise<ToolResult> {
-    return this.executeArgs('find', [directory, '-name', pattern, '-type', 'f']);
+    return this.executeArgs('find', [directory, '-maxdepth', String(MAX_FIND_DEPTH), '-name', pattern, '-type', 'f']);
   }
 
   async grep(pattern: string, files = '.'): Promise<ToolResult> {
-    return this.executeArgs('grep', ['-r', pattern, files]);
+    return this.executeArgs('grep', ['-r', '--max-count', String(MAX_SEARCH_MATCHES), pattern, files]);
   }
 }

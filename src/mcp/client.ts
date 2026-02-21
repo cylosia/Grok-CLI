@@ -4,6 +4,7 @@ import { getTrustedMCPServerFingerprints, loadMCPConfig } from "./config.js";
 import { createHash } from "crypto";
 import { logger } from "../utils/logger.js";
 import { MCPServerName, parseMCPServerName } from "../types/index.js";
+import { canonicalJsonStringify } from "../utils/canonical-json.js";
 
 export interface MCPServerConfig {
   name: string;
@@ -42,6 +43,7 @@ export class MCPManager {
   private static readonly TEARDOWN_TIMEOUT_MS = 5_000;
   private static readonly TIMED_OUT_CALL_COOLDOWN_MS = 30_000;
   private timedOutCallCooldownUntil = new Map<string, number>();
+  private inFlightToolCalls = new Map<string, Promise<{ content: unknown[] }>>();
 
   private safeSerializeForHash(value: unknown): string {
     const seen = new WeakSet<object>();
@@ -66,7 +68,7 @@ export class MCPManager {
       command: config.command,
       args: config.args,
     };
-    return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+    return createHash("sha256").update(canonicalJsonStringify(payload)).digest("hex");
   }
 
   private ensureTrustedServer(config: MCPServerConfig): void {
@@ -222,6 +224,22 @@ export class MCPManager {
     return createHash("sha256").update(this.safeSerializeForHash({ name, args })).digest("hex");
   }
 
+  private async awaitInFlightCall(name: string, callPromise: Promise<{ content: unknown[] }>): Promise<{ content: unknown[] }> {
+    let timeoutHandle: NodeJS.Timeout | undefined;
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(`MCP tool call timed out while waiting for in-flight result: ${name}`));
+        }, MCPManager.TOOL_CALL_TIMEOUT_MS);
+      });
+      return await Promise.race([callPromise, timeoutPromise]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+  }
+
   private assertCallNotCoolingDown(callKey: string, name: string): void {
     const until = this.timedOutCallCooldownUntil.get(callKey) ?? 0;
     const now = Date.now();
@@ -245,6 +263,10 @@ export class MCPManager {
     }
     const toolName = parts.slice(2).join("__");
     const callKey = this.buildCallKey(name, args);
+    const existingCall = this.inFlightToolCalls.get(callKey);
+    if (existingCall) {
+      return this.awaitInFlightCall(name, existingCall);
+    }
     this.assertCallNotCoolingDown(callKey, name);
     const server = this.servers.get(serverName);
 
@@ -277,11 +299,16 @@ export class MCPManager {
         arguments: args,
       });
 
-      const result = await Promise.race([callPromise, timeoutPromise]);
+      const normalizedCallPromise = callPromise
+        .then((result) => ({
+          content: Array.isArray(result.content) ? result.content : [],
+        }))
+        .finally(() => {
+          this.inFlightToolCalls.delete(callKey);
+        });
+      this.inFlightToolCalls.set(callKey, normalizedCallPromise);
 
-      return {
-        content: Array.isArray(result.content) ? result.content : [],
-      };
+      return await Promise.race([normalizedCallPromise, timeoutPromise]);
     } catch (error) {
       throw error;
     } finally {

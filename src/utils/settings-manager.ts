@@ -217,8 +217,8 @@ export class SettingsManager {
       delete merged.apiKey;
     }
 
-    await this.enqueueWrite(this.userSettingsPath, merged);
     this.userSettingsCache = merged;
+    await this.enqueueWrite(this.userSettingsPath, merged);
   }
 
   public getCurrentModel(): string {
@@ -287,8 +287,8 @@ export class SettingsManager {
   public async saveProjectSettings(settings: Partial<ProjectSettings>): Promise<void> {
     const current = this.projectSettingsCache ? sanitizeProjectSettings(this.projectSettingsCache) : sanitizeProjectSettings(this.readJsonFile(this.projectSettingsPath));
     const merged = { ...DEFAULT_PROJECT_SETTINGS, ...current, ...sanitizeProjectSettings(settings) };
-    await this.enqueueWrite(this.projectSettingsPath, merged);
     this.projectSettingsCache = merged;
+    await this.enqueueWrite(this.projectSettingsPath, merged);
   }
 
   public async updateProjectSetting<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]): Promise<void> {
