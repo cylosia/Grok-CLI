@@ -5,6 +5,7 @@ import { open as openFile } from "fs/promises";
 import { ToolResult, EditorCommand } from "../types/index.js";
 import { ConfirmationService } from "../utils/confirmation-service.js";
 import { generateUnifiedDiff } from "./diff-utils.js";
+import { resolveSafePathWithinRoot } from "./path-safety.js";
 
 export class TextEditorTool {
   private editHistory: EditorCommand[] = [];
@@ -568,43 +569,9 @@ export class TextEditorTool {
     return true;
   }
 
-  private isWithinRoot(root: string, target: string): boolean {
-    const relative = path.relative(root, target);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-  }
 
   private async resolveSafePath(filePath: string): Promise<string> {
-    const workspaceRootReal = await fs.realpath(this.workspaceRoot);
-    const resolvedPath = path.resolve(workspaceRootReal, filePath);
-
-    if (!this.isWithinRoot(workspaceRootReal, resolvedPath)) {
-      throw new Error(`Path escapes workspace root: ${filePath}`);
-    }
-
-    const existingTarget = await fs.pathExists(resolvedPath);
-    if (existingTarget) {
-      const targetReal = await fs.realpath(resolvedPath);
-      if (!this.isWithinRoot(workspaceRootReal, targetReal)) {
-        throw new Error(`Path resolves outside workspace root: ${filePath}`);
-      }
-      return targetReal;
-    }
-
-    let ancestor = path.dirname(resolvedPath);
-    while (!(await fs.pathExists(ancestor))) {
-      const next = path.dirname(ancestor);
-      if (next === ancestor) {
-        throw new Error(`Unable to resolve safe parent for path: ${filePath}`);
-      }
-      ancestor = next;
-    }
-
-    const ancestorReal = await fs.realpath(ancestor);
-    if (!this.isWithinRoot(workspaceRootReal, ancestorReal)) {
-      throw new Error(`Path parent resolves outside workspace root: ${filePath}`);
-    }
-
-    return resolvedPath;
+    return resolveSafePathWithinRoot(this.workspaceRoot, filePath);
   }
 
   getEditHistory(): EditorCommand[] {

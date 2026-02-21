@@ -3,6 +3,7 @@ import { ToolResult } from "../types/index.js";
 import fs from "fs-extra";
 import * as path from "path";
 import { logger } from "../utils/logger.js";
+import { isWithinRoot } from "./path-safety.js";
 
 const MAX_RG_OUTPUT_BYTES = 2_000_000;
 const RG_TIMEOUT_MS = 30_000;
@@ -48,8 +49,7 @@ export class SearchTool {
   private currentDirectory: string = process.cwd();
 
   private isWithinWorkspace(candidate: string): boolean {
-    const relative = path.relative(this.workspaceRoot, candidate);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    return isWithinRoot(this.workspaceRoot, candidate);
   }
 
   /**

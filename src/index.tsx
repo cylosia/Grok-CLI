@@ -3,7 +3,7 @@ import App from "./ui/app.js";
 import { GrokAgent } from "./agent/grok-agent.js";
 import { loadRuntimeConfig } from "./utils/runtime-config.js";
 import { getMCPManager } from "./grok/tools.js";
-import { logger } from "./utils/logger.js";
+import { logger, safeJsonStringify } from "./utils/logger.js";
 
 const SHUTDOWN_TIMEOUT_MS = 5_000;
 
@@ -131,7 +131,7 @@ Full TUI launches automatically when TTY is detected.
     try {
       const result = await agent.processUserMessage(prompt);
       console.log("\nResult:");
-      console.log(JSON.stringify(result, null, 2));
+      console.log(safeJsonStringify(result));
     } catch (err) {
       logger.error("cli-mode-error", {
         component: "index",

@@ -162,9 +162,10 @@ export class MorphEditorTool {
 
       return response.data.choices[0].message.content;
     } catch (error: unknown) {
-      const maybeError = error as { response?: { status?: number; data?: unknown } };
+      const maybeError = error as { response?: { status?: number } };
       if (maybeError.response) {
-        throw new Error(`Morph API error (${maybeError.response.status ?? 'unknown'}): ${String(maybeError.response.data ?? '')}`);
+        const status = maybeError.response.status ?? 'unknown';
+        throw new Error(`Morph API error (${status})`);
       }
       throw (error instanceof Error ? error : new Error(String(error)));
     }

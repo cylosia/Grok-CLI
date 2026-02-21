@@ -66,3 +66,27 @@ test("bash tool does not treat git revision args as path args", async () => {
 
   confirmations.resetSession();
 });
+
+test("bash tool blocks git --git-dir outside workspace", async () => {
+  const confirmations = ConfirmationService.getInstance();
+  confirmations.setSessionFlag("bashCommands", true);
+
+  const tool = new BashTool();
+  const result = await tool.executeArgs("git", ["--git-dir=/etc", "status"]);
+  assert.equal(result.success, false);
+  assert.match(result.error ?? "", /outside workspace/i);
+
+  confirmations.resetSession();
+});
+
+test("bash tool blocks non-allowlisted git subcommands", async () => {
+  const confirmations = ConfirmationService.getInstance();
+  confirmations.setSessionFlag("bashCommands", true);
+
+  const tool = new BashTool();
+  const result = await tool.executeArgs("git", ["config", "user.name"]);
+  assert.equal(result.success, false);
+  assert.match(result.error ?? "", /not allowed by policy/i);
+
+  confirmations.resetSession();
+});

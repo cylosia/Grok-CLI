@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Text, Box } from "ink";
 import { AgentSupervisor } from "../agent/supervisor.js";
+import { logger } from "../utils/logger.js";
 
 interface VoiceInputProps {
   supervisor: AgentSupervisor;
@@ -11,7 +12,7 @@ export const VoiceInput = ({ supervisor: _supervisor }: VoiceInputProps) => {
   const [transcript] = useState("");
 
   useEffect(() => {
-    console.log("🎤 Voice Mode activated – speak now");
+    logger.info("voice-mode-activated", { component: "voice-input" });
   }, []);
 
   return (
