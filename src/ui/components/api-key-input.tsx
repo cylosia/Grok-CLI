@@ -23,7 +23,7 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
     }
 
     if (key.return) {
-      handleSubmit();
+      void handleSubmit();
       return;
     }
 
@@ -58,7 +58,7 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
       // Persist non-sensitive settings; API key remains in memory for this session
       try {
         const manager = getSettingsManager();
-        manager.updateUserSetting('apiKey', apiKey);
+        await manager.updateUserSetting('apiKey', apiKey);
         console.log(`\n✅ API key validated and loaded for this session`);
       } catch (_error) {
         console.log('\n⚠️ Could not persist API key session state');

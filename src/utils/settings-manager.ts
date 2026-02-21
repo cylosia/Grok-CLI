@@ -97,6 +97,7 @@ export class SettingsManager {
   private userSettingsCache: UserSettings | null = null;
   private projectSettingsCache: ProjectSettings | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
+  private lastWriteError: Error | null = null;
 
   private constructor() {
     this.userSettingsPath = path.join(os.homedir(), ".grok", "user-settings.json");
@@ -122,9 +123,8 @@ export class SettingsManager {
     return JSON.parse(content) as unknown;
   }
 
-  private enqueueWrite(filePath: string, value: object): void {
-    this.writeQueue = this.writeQueue
-      .then(async () => {
+  private enqueueWrite(filePath: string, value: object): Promise<void> {
+    const operation = this.writeQueue.then(async () => {
         const dir = path.dirname(filePath);
         await fs.ensureDir(dir);
 
@@ -132,14 +132,22 @@ export class SettingsManager {
         const serialized = JSON.stringify(value, null, 2);
         await fs.writeFile(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600 });
         await fs.move(tempFilePath, filePath, { overwrite: true });
+      });
+
+    this.writeQueue = operation
+      .then(() => {
+        this.lastWriteError = null;
       })
       .catch((error: unknown) => {
+        this.lastWriteError = error instanceof Error ? error : new Error(String(error));
         logger.warn("settings-write-failed", {
           component: "settings-manager",
           filePath,
           error: error instanceof Error ? error.message : String(error),
         });
       });
+
+    return operation;
   }
 
   public loadUserSettings(forceReload = false): UserSettings {
@@ -150,7 +158,7 @@ export class SettingsManager {
       const rawSettings = this.readJsonFile(this.userSettingsPath);
       if (!rawSettings) {
         const mergedDefaults = { ...DEFAULT_USER_SETTINGS };
-        this.enqueueWrite(this.userSettingsPath, mergedDefaults);
+        void this.enqueueWrite(this.userSettingsPath, mergedDefaults);
         this.userSettingsCache = mergedDefaults;
         return mergedDefaults;
       }
@@ -162,7 +170,7 @@ export class SettingsManager {
         const { apiKey, ...sanitized } = settings;
         void apiKey;
         const merged = { ...DEFAULT_USER_SETTINGS, ...sanitized };
-        this.enqueueWrite(this.userSettingsPath, merged);
+        void this.enqueueWrite(this.userSettingsPath, merged);
         this.userSettingsCache = merged;
         return merged;
       }
@@ -180,7 +188,7 @@ export class SettingsManager {
     }
   }
 
-  public saveUserSettings(settings: Partial<UserSettings>): void {
+  public async saveUserSettings(settings: Partial<UserSettings>): Promise<void> {
     const current = this.userSettingsCache ? sanitizeUserSettings(this.userSettingsCache) : sanitizeUserSettings(this.readJsonFile(this.userSettingsPath));
     const merged = { ...DEFAULT_USER_SETTINGS, ...current, ...sanitizeUserSettings(settings) };
     if (typeof merged.apiKey === "string") {
@@ -188,7 +196,7 @@ export class SettingsManager {
       delete merged.apiKey;
     }
 
-    this.enqueueWrite(this.userSettingsPath, merged);
+    await this.enqueueWrite(this.userSettingsPath, merged);
     this.userSettingsCache = merged;
   }
 
@@ -196,8 +204,8 @@ export class SettingsManager {
     return this.loadProjectSettings().model || this.loadUserSettings().defaultModel || "grok-420";
   }
 
-  public setCurrentModel(model: string): void {
-    this.updateProjectSetting("model", model);
+  public async setCurrentModel(model: string): Promise<void> {
+    await this.updateProjectSetting("model", model);
   }
 
   public getAvailableModels(): string[] {
@@ -212,19 +220,19 @@ export class SettingsManager {
     return process.env.GROK_BASE_URL || this.loadUserSettings().baseURL || DEFAULT_USER_SETTINGS.baseURL || "https://api.x.ai/v1";
   }
 
-  public updateUserSetting<K extends keyof UserSettings>(key: K, value: UserSettings[K]): void {
+  public async updateUserSetting<K extends keyof UserSettings>(key: K, value: UserSettings[K]): Promise<void> {
     if (key === "apiKey" && typeof value === "string") {
       this.sessionApiKey = value;
       const current = this.userSettingsCache ? sanitizeUserSettings(this.userSettingsCache) : sanitizeUserSettings(this.readJsonFile(this.userSettingsPath));
       if (typeof current.apiKey === "string") {
         delete current.apiKey;
-        this.enqueueWrite(this.userSettingsPath, current);
+        await this.enqueueWrite(this.userSettingsPath, current);
         this.userSettingsCache = { ...DEFAULT_USER_SETTINGS, ...current };
       }
       return;
     }
 
-    this.saveUserSettings({ [key]: value });
+    await this.saveUserSettings({ [key]: value });
   }
 
   public loadProjectSettings(forceReload = false): ProjectSettings {
@@ -236,7 +244,7 @@ export class SettingsManager {
       const rawSettings = this.readJsonFile(this.projectSettingsPath);
       if (!rawSettings) {
         const mergedDefaults = { ...DEFAULT_PROJECT_SETTINGS };
-        this.enqueueWrite(this.projectSettingsPath, mergedDefaults);
+        void this.enqueueWrite(this.projectSettingsPath, mergedDefaults);
         this.projectSettingsCache = mergedDefaults;
         return mergedDefaults;
       }
@@ -255,15 +263,22 @@ export class SettingsManager {
     }
   }
 
-  public saveProjectSettings(settings: Partial<ProjectSettings>): void {
+  public async saveProjectSettings(settings: Partial<ProjectSettings>): Promise<void> {
     const current = this.projectSettingsCache ? sanitizeProjectSettings(this.projectSettingsCache) : sanitizeProjectSettings(this.readJsonFile(this.projectSettingsPath));
     const merged = { ...DEFAULT_PROJECT_SETTINGS, ...current, ...sanitizeProjectSettings(settings) };
-    this.enqueueWrite(this.projectSettingsPath, merged);
+    await this.enqueueWrite(this.projectSettingsPath, merged);
     this.projectSettingsCache = merged;
   }
 
-  public updateProjectSetting<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]): void {
-    this.saveProjectSettings({ [key]: value });
+  public async updateProjectSetting<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]): Promise<void> {
+    await this.saveProjectSettings({ [key]: value });
+  }
+
+  public async flushWrites(): Promise<void> {
+    await this.writeQueue;
+    if (this.lastWriteError) {
+      throw this.lastWriteError;
+    }
   }
 }
 

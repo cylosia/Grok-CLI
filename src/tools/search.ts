@@ -5,6 +5,7 @@ import * as path from "path";
 import { logger } from "../utils/logger.js";
 
 const MAX_RG_OUTPUT_BYTES = 2_000_000;
+const RG_TIMEOUT_MS = 30_000;
 
 export interface SearchResult {
   file: string;
@@ -209,6 +210,16 @@ export class SearchTool {
       let output = "";
       let errorOutput = "";
       let outputTruncated = false;
+      let timedOut = false;
+      let forceKillTimer: NodeJS.Timeout | undefined;
+
+      const timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        rg.kill("SIGTERM");
+        forceKillTimer = setTimeout(() => {
+          rg.kill("SIGKILL");
+        }, 1_500);
+      }, RG_TIMEOUT_MS);
 
       const appendWithCap = (current: string, chunk: string): string => {
         if (current.length >= MAX_RG_OUTPUT_BYTES) {
@@ -235,6 +246,12 @@ export class SearchTool {
       });
 
       rg.on("close", (code) => {
+        clearTimeout(timeoutHandle);
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+        if (timedOut) {
+          reject(new Error(`Ripgrep timed out after ${RG_TIMEOUT_MS}ms; narrow your search query`));
+          return;
+        }
         if (outputTruncated) {
           reject(new Error(`Ripgrep output exceeded ${MAX_RG_OUTPUT_BYTES} bytes; narrow your search query`));
           return;
@@ -249,6 +266,8 @@ export class SearchTool {
       });
 
       rg.on("error", (error) => {
+        clearTimeout(timeoutHandle);
+        if (forceKillTimer) clearTimeout(forceKillTimer);
         reject(error);
       });
     });

@@ -3,7 +3,7 @@ import { createTransport, MCPTransport, TransportType } from "./transports.js";
 import { getTrustedMCPServerFingerprints, loadMCPConfig } from "./config.js";
 import { createHash } from "crypto";
 import { logger } from "../utils/logger.js";
-import { MCPServerName, asMCPServerName, parseMCPServerName } from "../types/index.js";
+import { MCPServerName, parseMCPServerName } from "../types/index.js";
 
 export interface MCPServerConfig {
   name: string;
@@ -62,7 +62,10 @@ export class MCPManager {
   }
 
   async addServer(config: MCPServerConfig): Promise<void> {
-    const serverName = asMCPServerName(config.name);
+    const serverName = parseMCPServerName(config.name);
+    if (!serverName) {
+      throw new Error(`Invalid MCP server name: ${config.name}`);
+    }
     if (this.servers.has(serverName)) {
       return;
     }
@@ -142,7 +145,15 @@ export class MCPManager {
     const now = Date.now();
     let hadFailures = false;
     for (const server of config.servers) {
-      const serverName = asMCPServerName(server.name);
+      const serverName = parseMCPServerName(server.name);
+      if (!serverName) {
+        hadFailures = true;
+        logger.warn("mcp-server-invalid-name", {
+          component: "mcp-client",
+          server: server.name,
+        });
+        continue;
+      }
       const cooldownUntil = this.failedInitializationCooldownUntil.get(serverName) ?? 0;
       if (cooldownUntil > now || this.servers.has(serverName)) {
         continue;

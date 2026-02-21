@@ -44,7 +44,7 @@ export function getDefaultModels(): string[] {
  */
 export function updateCurrentModel(modelName: string): void {
   const manager = getSettingsManager();
-  manager.setCurrentModel(modelName);
+  void manager.setCurrentModel(modelName);
 }
 
 /**
@@ -52,5 +52,5 @@ export function updateCurrentModel(modelName: string): void {
  */
 export function updateDefaultModel(modelName: string): void {
   const manager = getSettingsManager();
-  manager.updateUserSetting('defaultModel', modelName);
+  void manager.updateUserSetting('defaultModel', modelName);
 }
