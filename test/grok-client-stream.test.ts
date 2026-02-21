@@ -50,3 +50,34 @@ test("grok client rejects oversized streamed tool arguments", async () => {
     }
   }, /exceeded 100000 bytes/i);
 });
+
+
+test("grok client sets idempotency header on chat requests", async () => {
+  const client = new GrokClient("test-key");
+  let capturedHeaders: Record<string, string> | undefined;
+
+  const internal = client as unknown as {
+    client: {
+      chat: {
+        completions: {
+          create: (_body: unknown, options?: { headers?: Record<string, string> }) => Promise<{ choices: Array<{ message: { content: string } }> }>;
+        };
+      };
+    };
+  };
+
+  internal.client = {
+    chat: {
+      completions: {
+        create: async (_body, options) => {
+          capturedHeaders = options?.headers;
+          return { choices: [{ message: { content: "ok" } }] };
+        },
+      },
+    },
+  };
+
+  await client.chat([{ role: "user", content: "hello" }]);
+  assert.equal(typeof capturedHeaders?.["Idempotency-Key"], "string");
+  assert.ok((capturedHeaders?.["Idempotency-Key"]?.length ?? 0) > 0);
+});
