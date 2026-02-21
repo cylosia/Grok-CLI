@@ -67,3 +67,20 @@ test("search ripgrep parser logs at most one warning for invalid JSON output", (
     logger.warn = originalWarn;
   }
 });
+
+
+test("search tool setCurrentDirectory rejects missing directory with controlled error", async () => {
+  const originalCwd = process.cwd();
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "grok-search-"));
+  const workspace = path.join(tempRoot, "workspace");
+  await fs.mkdir(workspace, { recursive: true });
+
+  process.chdir(workspace);
+  try {
+    const tool = new SearchTool();
+    assert.throws(() => tool.setCurrentDirectory("./does-not-exist"), /does not exist/i);
+  } finally {
+    process.chdir(originalCwd);
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});

@@ -185,7 +185,7 @@ function sanitizeProjectSettings(value: unknown): Partial<ProjectSettings> {
 }
 
 export class SettingsManager {
-  private static instance: SettingsManager;
+  private static instancesByWorkspace = new Map<string, SettingsManager>();
   private userSettingsPath: string;
   private projectSettingsPath: string;
   private sessionApiKey: string | undefined;
@@ -195,18 +195,25 @@ export class SettingsManager {
   private pendingWriteCount = 0;
   private lastWriteError: Error | null = null;
 
-  private constructor() {
+  private constructor(private readonly workspaceRoot: string) {
     this.userSettingsPath = path.join(os.homedir(), ".grok", "user-settings.json");
-    this.projectSettingsPath = path.join(process.cwd(), ".grok", "settings.json");
+    this.projectSettingsPath = path.join(workspaceRoot, ".grok", "settings.json");
   }
 
-  public static getInstance(): SettingsManager {
-    if (!SettingsManager.instance) SettingsManager.instance = new SettingsManager();
-    return SettingsManager.instance;
+  public static getInstance(workspaceRoot = process.cwd()): SettingsManager {
+    const canonicalRoot = path.resolve(workspaceRoot);
+    const existing = SettingsManager.instancesByWorkspace.get(canonicalRoot);
+    if (existing) {
+      return existing;
+    }
+
+    const next = new SettingsManager(canonicalRoot);
+    SettingsManager.instancesByWorkspace.set(canonicalRoot, next);
+    return next;
   }
 
   private refreshProjectSettingsPath(): void {
-    const nextPath = path.join(process.cwd(), ".grok", "settings.json");
+    const nextPath = path.join(this.workspaceRoot, ".grok", "settings.json");
     if (nextPath !== this.projectSettingsPath) {
       this.projectSettingsPath = nextPath;
       this.projectSettingsCache = null;
@@ -399,6 +406,6 @@ export class SettingsManager {
   }
 }
 
-export function getSettingsManager(): SettingsManager {
-  return SettingsManager.getInstance();
+export function getSettingsManager(workspaceRoot = process.cwd()): SettingsManager {
+  return SettingsManager.getInstance(workspaceRoot);
 }

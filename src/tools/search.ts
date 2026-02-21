@@ -122,7 +122,7 @@ export class SearchTool {
     } catch (error) {
       return {
         success: false,
-        error: `Search error: ${error instanceof Error ? error.message : String(error)}` ,
+        error: `Search error: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
   }
@@ -519,7 +519,24 @@ export class SearchTool {
    */
   setCurrentDirectory(directory: string): void {
     const resolved = path.resolve(this.currentDirectory, directory);
-    const canonical = fs.realpathSync(resolved);
+    if (!fs.existsSync(resolved)) {
+      throw new Error(`Search directory does not exist: ${directory}`);
+    }
+
+    let canonical: string;
+    try {
+      canonical = fs.realpathSync(resolved);
+    } catch (error) {
+      throw new Error(
+        `Failed to resolve search directory: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    const stats = fs.statSync(canonical);
+    if (!stats.isDirectory()) {
+      throw new Error(`Search directory is not a directory: ${directory}`);
+    }
+
     if (!this.isWithinWorkspace(canonical)) {
       throw new Error(`Search directory is outside workspace root: ${directory}`);
     }
