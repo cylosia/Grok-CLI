@@ -44,7 +44,13 @@ interface RipgrepJsonLine {
 }
 
 export class SearchTool {
+  private readonly workspaceRoot: string = process.cwd();
   private currentDirectory: string = process.cwd();
+
+  private isWithinWorkspace(candidate: string): boolean {
+    const relative = path.relative(this.workspaceRoot, candidate);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  }
 
   /**
    * Unified search method that can search for text content or find files
@@ -490,7 +496,12 @@ export class SearchTool {
    * Update current working directory
    */
   setCurrentDirectory(directory: string): void {
-    this.currentDirectory = directory;
+    const resolved = path.resolve(this.currentDirectory, directory);
+    const canonical = fs.realpathSync(resolved);
+    if (!this.isWithinWorkspace(canonical)) {
+      throw new Error(`Search directory is outside workspace root: ${directory}`);
+    }
+    this.currentDirectory = canonical;
   }
 
   /**

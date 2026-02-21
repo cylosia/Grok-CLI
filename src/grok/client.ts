@@ -128,6 +128,7 @@ export class GrokClient {
   private static readonly REQUEST_TIMEOUT_MS = 30_000;
   private static readonly CIRCUIT_BREAKER_THRESHOLD = 5;
   private static readonly CIRCUIT_BREAKER_COOLDOWN_MS = 30_000;
+  private static readonly MAX_STREAMED_TOOL_ARGS_BYTES = 100_000;
   private client: OpenAI;
   private currentModel = "grok-420";
   private consecutiveFailures = 0;
@@ -236,7 +237,13 @@ export class GrokClient {
 
           if (partial.id) existing.id = partial.id;
           if (partial.function?.name) existing.function.name = partial.function.name;
-          if (partial.function?.arguments) existing.function.arguments += partial.function.arguments;
+          if (partial.function?.arguments) {
+            const nextArguments = `${existing.function.arguments}${partial.function.arguments}`;
+            if (Buffer.byteLength(nextArguments, "utf8") > GrokClient.MAX_STREAMED_TOOL_ARGS_BYTES) {
+              throw new Error(`Tool call arguments exceeded ${GrokClient.MAX_STREAMED_TOOL_ARGS_BYTES} bytes during streaming`);
+            }
+            existing.function.arguments = nextArguments;
+          }
 
           toolCalls[partial.index] = existing;
         }
