@@ -86,11 +86,25 @@ async function resolveStableHostAddresses(host: string): Promise<string[]> {
 export interface McpUrlValidationOptions {
   allowLocalHttp?: boolean;
   allowPrivateHttps?: boolean;
+  pinnedAddresses?: string[];
+}
+
+function normalizeAddresses(values: string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
+function assertPinnedAddresses(host: string, resolvedAddresses: string[], pinnedAddresses: string[]): void {
+  const resolved = normalizeAddresses(resolvedAddresses);
+  const pinned = normalizeAddresses(pinnedAddresses);
+  if (resolved.length !== pinned.length || resolved.some((value, index) => value !== pinned[index])) {
+    throw new Error(`Resolved addresses for ${host} do not match pinned MCP endpoint addresses`);
+  }
 }
 
 export async function validateMcpUrl(rawUrl: string, options: McpUrlValidationOptions = {}): Promise<string> {
   const allowLocalHttp = options.allowLocalHttp ?? false;
   const allowPrivateHttps = options.allowPrivateHttps ?? false;
+  const pinnedAddresses = options.pinnedAddresses;
   const normalized = rawUrl.trim();
 
   const URLCtor = (globalThis as { URL?: new (input: string) => { protocol: string; hostname: string; toString(): string } }).URL;
@@ -116,6 +130,9 @@ export async function validateMcpUrl(rawUrl: string, options: McpUrlValidationOp
   }
 
   const resolvedAddresses = await resolveStableHostAddresses(host);
+  if (Array.isArray(pinnedAddresses) && pinnedAddresses.length > 0) {
+    assertPinnedAddresses(host, resolvedAddresses, pinnedAddresses);
+  }
   const hostIsPrivate = isPrivateHost(host) || resolvedAddresses.some((address) => isPrivateHost(address));
 
   if (scheme === "http") {

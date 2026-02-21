@@ -45,22 +45,6 @@ export class MCPManager {
   private timedOutCallCooldownUntil = new Map<string, number>();
   private inFlightToolCalls = new Map<string, Promise<{ content: unknown[] }>>();
 
-  private safeSerializeForHash(value: unknown): string {
-    const seen = new WeakSet<object>();
-    return JSON.stringify(value, (_key, current) => {
-      if (typeof current === "bigint") {
-        return current.toString();
-      }
-      if (current && typeof current === "object") {
-        if (seen.has(current)) {
-          return "[CIRCULAR]";
-        }
-        seen.add(current);
-      }
-      return current;
-    });
-  }
-
   private getServerFingerprint(config: MCPServerConfig): string {
     const payload = {
       name: config.name,
@@ -221,7 +205,7 @@ export class MCPManager {
   }
 
   private buildCallKey(name: string, args: Record<string, unknown>): string {
-    return createHash("sha256").update(this.safeSerializeForHash({ name, args })).digest("hex");
+    return createHash("sha256").update(canonicalJsonStringify({ name, args })).digest("hex");
   }
 
   private async awaitInFlightCall(name: string, callPromise: Promise<{ content: unknown[] }>): Promise<{ content: unknown[] }> {
@@ -275,12 +259,14 @@ export class MCPManager {
     }
 
     let timeoutHandle: NodeJS.Timeout | undefined;
+    const controller = new AbortController();
 
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutHandle = setTimeout(() => {
           const timeoutError = new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`);
           this.timedOutCallCooldownUntil.set(callKey, Date.now() + MCPManager.TIMED_OUT_CALL_COOLDOWN_MS);
+          controller.abort(timeoutError);
           void this.teardownServerWithTimeout(serverName).then(() => {
             reject(timeoutError);
           }).catch((teardownError) => {
@@ -297,6 +283,9 @@ export class MCPManager {
       const callPromise = server.client.callTool({
         name: toolName,
         arguments: args,
+      }, undefined, {
+        signal: controller.signal,
+        timeout: MCPManager.TOOL_CALL_TIMEOUT_MS,
       });
 
       const normalizedCallPromise = callPromise

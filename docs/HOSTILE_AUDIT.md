@@ -1,85 +1,88 @@
-# Hostile Production Audit (Financial-Grade)
+# Hostile Production Audit (TypeScript/PostgreSQL Readiness)
 
-## Scope and verification method
-- Repository inventory: `rg --files`.
-- Type safety + lint + tests:
+## Scope, decomposition method, and verification
+- Full source/config inventory: `rg --files -g '*.ts' -g '*.tsx' -g '*.sql' -g 'package.json' -g 'tsconfig*.json' --glob '!node_modules/**'`.
+- Pattern-driven pass over every TypeScript module + config files using `rg -n` for unsafe casts, timeout races, serialization, env usage, and async error boundaries.
+- Adversarial second pass focused on timeout/catch/config/dependency paths.
+- Validation checks executed:
   - `npm run -s typecheck` ✅
   - `npm run -s lint` ✅
   - `npm test -s` ✅
-- Dependency/security gate:
-  - `npm run -s audit:ci` ⚠️ (registry denied access with `E403`, so CVE verification is incomplete in this environment).
-- PostgreSQL/SQL surface detection:
-  - `rg -n "\b(pg|postgres|sql|SELECT|INSERT|UPDATE|DELETE|transaction|pool|knex|prisma|sequelize|typeorm)\b" src test` returned no in-repo PostgreSQL implementation.
+  - `npm run -s audit:ci` ⚠️ (`Forbidden` from registry in this environment, so CVE gate could not complete)
 
-## Phase 1 — systematic decomposition findings
+## Phase 1 — Systematic decomposition findings
 
 ### Critical (P0)
-1. **File:Line:Column** `src/mcp/client.ts:280:28`  
-   **Category** Security | Async | Architecture  
-   **Specific violation** `Promise.race([callPromise, timeoutPromise])` times out locally, tears down local transport, and rejects, but does not send protocol-level cancellation for the already-dispatched remote tool invocation. This creates a check-then-retry window where non-idempotent remote side effects can execute multiple times.  
-   **Concrete fix suggestion** Add MCP request IDs + explicit cancel RPC on timeout, and treat all non-idempotent tools as non-retriable until cancellation acknowledgement arrives. For tools lacking cancel support, enforce idempotency keys in `args` and server-side dedupe.  
-   **Risk if not fixed** Duplicate state mutations (e.g., writes, external actions) under latency spikes; incident class: data integrity/security breach in connected systems.
+1. **File:Line:Column** `src/mcp/client.ts:280:9`  
+   **Category:** Security | Async | Architecture  
+   **Violation:** Tool calls use `Promise.race` timeout + local teardown, but no protocol-level cancellation/idempotency token is sent for an already-dispatched remote call. Timed-out call can still execute remotely, and retries can double-apply side effects.
+   **Concrete fix:** Add request IDs and cancellation RPC on timeout; for non-cancelable tools require idempotency keys in arguments and server-side dedupe before retries.
+   **Risk if not fixed:** Duplicate writes/external side effects during latency spikes; direct data-integrity incident potential.
 
 ### High (P1)
-2. **File:Line:Column** `src/commands/mcp.ts:57:43` + `src/mcp/client.ts:62:35`  
-   **Category** Security | Availability  
-   **Specific violation** Server trust fingerprinting uses `JSON.stringify` of mutable object graphs; semantically identical configurations with reordered object keys produce different hashes. Manual edits or serializer differences can brick trusted servers as “untrusted.”  
-   **Concrete fix suggestion** Replace ad-hoc `JSON.stringify` with deterministic canonical JSON serialization (stable key sorting at every object level) before hashing, and include an explicit fingerprint schema version.  
-   **Risk if not fixed** False trust failures during restart/deploy and production outage for MCP-dependent workflows.
+2. **File:Line:Column** `src/utils/settings-manager.ts:147:11`  
+   **Category:** Architecture | Concurrency | Data Integrity  
+   **Violation:** Writes are serialized by `writeQueue`, but reads (`loadUserSettings`/`loadProjectSettings`) are synchronous and do not await in-flight writes, so stale reads can be cached and re-used.
+   **Concrete fix:** Make load paths async and await pending `writeQueue` before read+cache; alternatively add version stamp/check to reject stale cache writes.
+   **Risk if not fixed:** Config rollback/stale-setting anomalies under concurrent operations.
 
-3. **File:Line:Column** `src/utils/settings-manager.ts:149:17` + `src/utils/settings-manager.ts:290:11`  
-   **Category** Concurrency | Data Integrity  
-   **Specific violation** Reads are synchronous and unsynchronized while writes are queued asynchronously. A read during queued write can observe stale data and immediately cache it (`userSettingsCache` / `projectSettingsCache`), creating last-writer-wins anomalies and stale config reuse windows.  
-   **Concrete fix suggestion** Serialize both reads and writes through a single async lock/queue per settings file (or use atomic version checks before cache replacement). On read, await pending write queue first.  
-   **Risk if not fixed** Intermittent configuration rollback behavior (model/env/MCP config drift), especially under concurrent command execution.
+3. **File:Line:Column** `src/utils/settings-manager.ts:82:1`  
+   **Category:** Security | Data-at-rest  
+   **Violation:** `writeJsonFileSyncAtomic` does not call `ensureSecureDirectory` and therefore does not remediate permissive existing directory mode before writing sensitive config flows.
+   **Concrete fix:** Reuse `ensureSecureDirectory` equivalent in sync path (or remove sync writer entirely), then enforce file mode verification (`0o600`) post-write.
+   **Risk if not fixed:** Secrets/settings can be exposed when `.grok` directory permissions were previously weak.
 
-4. **File:Line:Column** `src/utils/logger.ts:35:15`  
-   **Category** Observability | Resilience  
-   **Specific violation** Logger serialization does not handle `bigint`; `JSON.stringify` throws and logger falls back to a generic static line (`logger-serialization-failed`) losing original event payload at exactly the time high-fidelity telemetry is needed.  
-   **Concrete fix suggestion** Extend `safeJsonStringify` replacer to serialize `bigint` as string and preserve a truncated sanitized payload even on serialization failure.  
-   **Risk if not fixed** Incident debugging blind spots and delayed containment/forensics.
+4. **File:Line:Column** `src/utils/logger.ts:62:5`  
+   **Category:** Observability | Resilience  
+   **Violation:** On serialization failure, logger emits a static fallback string, discarding context entirely.
+   **Concrete fix:** Emit minimal sanitized metadata (message/component/correlationId + serialization error) instead of replacing with static constant.
+   **Risk if not fixed:** Major forensic blind spot during production incidents.
 
 ### Medium (P2)
-5. **File:Line:Column** `src/agent/grok-agent.ts:35:1`  
-   **Category** Architecture | Testability  
-   **Specific violation** `GrokAgent` remains a large orchestration class combining model I/O, tool execution, MCP lifecycle, memory, and streaming concerns. This violates SRP and weakens defect isolation.  
-   **Concrete fix suggestion** Extract `ToolExecutionService`, `McpLifecycleService`, and `ConversationCoordinator` interfaces; inject them into a thin agent facade.  
-   **Risk if not fixed** Elevated regression probability and slower incident patch velocity.
+5. **File:Line:Column** `src/mcp/client.ts:223:3`  
+   **Category:** Performance | Concurrency  
+   **Violation:** In-flight dedupe key uses non-canonical JSON serialization (`safeSerializeForHash`) of `args`; semantically identical objects with different key insertion order hash differently.
+   **Concrete fix:** Use `canonicalJsonStringify({name,args})` for `buildCallKey`.
+   **Risk if not fixed:** Duplicate concurrent calls bypass dedupe and increase side-effect/rate-limit pressure.
 
-6. **File:Line:Column** `src/tools/bash.ts:279:29`  
-   **Category** Security | Performance  
-   **Specific violation** Argument policy validates path-like arguments but does not bound glob/cardinality-heavy operations (`find . -type f`, broad `rg`/`grep`) beyond output truncation; expensive scans can still saturate CPU/IO despite capped output bytes.  
-   **Concrete fix suggestion** Add execution policy guards: max directory depth, max file count, and command-specific safe defaults (`rg --max-filesize`, optional `--max-count`) with explicit opt-in overrides.  
-   **Risk if not fixed** Resource exhaustion and degraded interactive latency under malicious or accidental broad commands.
+6. **File:Line:Column** `src/commands/mcp.ts:106:13`  
+   **Category:** Architecture | Resilience  
+   **Violation:** Command action handlers call `process.exit(1)` directly from deep action code.
+   **Concrete fix:** Throw structured errors to top-level CLI boundary and centralize shutdown/cleanup before process termination.
+   **Risk if not fixed:** Hard exits can bypass future cleanup hooks and complicate composability/testing.
 
 ### Low (P3)
-7. **File:Line:Column** `eslint.config.js:24:7`  
-   **Category** Quality Gate | Security hygiene  
-   **Specific violation** Lint rules enforce TS rigor but omit security-focused rulesets (no taint/source-sink linting, no regexp DOS checks, no hardcoded secret detection).  
-   **Concrete fix suggestion** Add security lint profile (e.g., eslint-plugin-security + custom banned-pattern rules) to CI fail gates.  
-   **Risk if not fixed** Preventable classes of security defects rely entirely on manual review.
+7. **File:Line:Column** `package.json:13:17`  
+   **Category:** Ops | Supply chain  
+   **Violation:** Security audit step exists but has no fallback mirror/offline policy, and fails closed in this environment.
+   **Concrete fix:** Route audit/SBOM to authenticated internal mirror and gate release on that pipeline.
+   **Risk if not fixed:** Dependency CVEs may escape release checks when registry access is constrained.
 
-8. **File:Line:Column** `package.json:12:5`  
-   **Category** Ops | Supply chain  
-   **Specific violation** `audit:ci` exists but cannot enforce in this runtime due registry auth; no in-repo documented fallback (mirror/SBOM/signature policy) is present.  
-   **Concrete fix suggestion** Enforce `npm ci --ignore-scripts && npm audit --audit-level=high` against an authenticated internal mirror in release CI, and publish an SBOM artifact.  
-   **Risk if not fixed** Critical dependency CVEs can pass release unnoticed.
+8. **File:Line:Column** `src/mcp/url-policy.ts:70:1`  
+   **Category:** Security | Network policy  
+   **Violation:** DNS rebinding check validates stability only at connect-time; there is no persistent pinning to resolved IP for transport lifetime.
+   **Concrete fix:** For enabled remote transports, pin the validated address set for the session and revalidate on reconnect.
+   **Risk if not fixed:** SSRF policy bypass risk re-emerges once HTTP/SSE transports are enabled.
 
-## Phase 2 — adversarial re-review
-- Re-checked “obvious” areas: timeout/cancellation paths (`src/mcp/client.ts`), trust hashing (`src/commands/mcp.ts`, `src/mcp/client.ts`), and settings persistence (`src/utils/settings-manager.ts`).
-- Re-checked error paths/catch blocks and global process handlers (`src/index.tsx`, `src/utils/logger.ts`).
-- Re-checked configs and dependency controls (`tsconfig.json`, `eslint.config.js`, `package.json`).
+## PostgreSQL/SQL surgery status
+- No in-repo PostgreSQL query layer, migration files, or SQL files were present in this snapshot (`rg --files -g '*.sql'` returned none).
+- Therefore SQL-specific checks (N+1, transaction isolation, index fit, migration safety, lock hierarchy) are **N/A by code absence** in this repository version.
 
-### Phase 2 conclusion
-- No PostgreSQL code artifacts are present in this repository snapshot; all SQL-specific findings requested are **N/A by code absence**.
-- The highest-risk production incidents today are around MCP timeout semantics and trust/config consistency.
+## Phase 2 — Adversarial re-review
+Re-examined:
+- Timeout/cancellation and retry windows (`src/mcp/client.ts`).
+- Catch/error paths and logger fallback behavior (`src/utils/logger.ts`, `src/index.tsx`).
+- Settings persistence race/perms (`src/utils/settings-manager.ts`).
+- Config/dependency controls (`package.json`, `tsconfig.json`, `eslint.config.js`).
 
-## Immediate production-incident ranking (if deployed as-is)
-1. **P0 — Timeout without remote cancellation** (`src/mcp/client.ts:280`)  
-   **Blast radius:** All mutating MCP tool integrations under network degradation; duplicate external side effects possible.
-2. **P1 — Non-deterministic trust fingerprints** (`src/commands/mcp.ts:57`, `src/mcp/client.ts:62`)  
-   **Blast radius:** Any environment where MCP server config is edited/reformatted; startup/connectivity failures.
-3. **P1 — Settings read/write race windows** (`src/utils/settings-manager.ts:149`, `src/utils/settings-manager.ts:290`)  
-   **Blast radius:** CLI sessions issuing concurrent config updates; stale/rolled-back settings behavior.
-4. **P1 — Logger bigint serialization blind spot** (`src/utils/logger.ts:35`)  
-   **Blast radius:** Cross-cutting incident observability whenever bigint enters structured logs.
+No additional P0/P1 beyond the set listed above were discovered in the second pass.
+
+## Immediate production-incident ranking (if deployed today)
+1. **P0:** MCP timeout without remote cancellation (`src/mcp/client.ts:280`).  
+   **Blast radius:** All mutating MCP tools under latency/packet loss; duplicate real-world side effects.
+2. **P1:** Settings stale-read race with cached rollback (`src/utils/settings-manager.ts:147`).  
+   **Blast radius:** Any concurrent config updates (model/server/settings drift across sessions).
+3. **P1:** Settings directory permission hardening gap in sync writer (`src/utils/settings-manager.ts:82`).  
+   **Blast radius:** Systems with permissive existing `.grok` permissions; sensitive configuration exposure.
+4. **P1:** Logger context drop on serialization failure (`src/utils/logger.ts:62`).  
+   **Blast radius:** Cross-cutting incident response degradation for all components.
