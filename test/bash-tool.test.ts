@@ -86,20 +86,20 @@ test("bash tool blocks non-allowlisted git subcommands", async () => {
   const tool = new BashTool();
   const result = await tool.executeArgs("git", ["config", "user.name"]);
   assert.equal(result.success, false);
-  assert.match(result.error ?? "", /not allowed by policy/i);
+  assert.match(result.error ?? "", /blocked by policy|not allowed by policy/i);
 
   confirmations.resetSession();
 });
 
 
-test("bash tool blocks git network subcommands by policy", async () => {
+test("bash tool blocks destructive git subcommands by policy", async () => {
   const confirmations = ConfirmationService.getInstance();
   confirmations.setSessionFlag("bashCommands", true);
 
   const tool = new BashTool();
-  const result = await tool.executeArgs("git", ["push"]);
+  const result = await tool.executeArgs("git", ["reset", "--hard"]);
   assert.equal(result.success, false);
-  assert.match(result.error ?? "", /not allowed by policy/i);
+  assert.match(result.error ?? "", /blocked by policy|not allowed by policy/i);
 
   confirmations.resetSession();
 });

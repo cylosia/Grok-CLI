@@ -192,5 +192,5 @@ export class ConfirmationService extends EventEmitter implements ConfirmationSer
 }
 
 export function createConfirmationService(): ConfirmationServiceLike {
-  return new ConfirmationService();
+  return ConfirmationService.getInstance();
 }

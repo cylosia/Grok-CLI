@@ -34,10 +34,14 @@ const UNSAFE_SHELL_METACHARS = /[;&|><`\n\r]/;
 const MAX_OUTPUT_BYTES = 1_000_000;
 const MAX_FIND_DEPTH = 8;
 const MAX_SEARCH_MATCHES = 500;
-const GIT_ALLOWED_SUBCOMMANDS = new Set([
-  'status', 'diff', 'log', 'show', 'rev-parse', 'branch', 'checkout',
-  'switch', 'add', 'reset', 'restore', 'commit',
-  'merge', 'rebase', 'tag', 'stash', 'cherry-pick'
+const GIT_ALLOWED_READONLY_SUBCOMMANDS = new Set([
+  'status', 'diff', 'log', 'show', 'rev-parse', 'branch'
+]);
+const GIT_ALLOWED_MUTATING_SUBCOMMANDS = new Set([
+  'add', 'restore', 'commit', 'push', 'tag', 'stash'
+]);
+const GIT_BLOCKED_DESTRUCTIVE_SUBCOMMANDS = new Set([
+  'checkout', 'switch', 'reset', 'merge', 'rebase', 'cherry-pick'
 ]);
 const GIT_PATH_BEARING_FLAGS = new Set([
   '-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--exec-path'
@@ -59,8 +63,12 @@ export class BashTool {
   }
 
   async execute(command: string, timeout = 30000): Promise<ToolResult> {
-    const tokens = this.tokenize(command.trim());
+    const trimmedCommand = command.trim();
+    const tokens = this.tokenize(trimmedCommand);
     if (tokens.length === 0) {
+      if (this.hasUnterminatedQuoteOrEscape(trimmedCommand)) {
+        return { success: false, error: 'Command contains unterminated quote or escape sequence' };
+      }
       return { success: false, error: 'Command cannot be empty' };
     }
 
@@ -106,6 +114,8 @@ export class BashTool {
         return argsValidation;
       }
 
+      const gitSubcommand = command === 'git' ? this.getGitSubcommand(args) : undefined;
+
       const normalizedArgs = await this.normalizeCommandArgs(command, args);
 
       const commandSpecificValidation = this.validateCommandSpecificArgs(command, args);
@@ -129,6 +139,24 @@ export class BashTool {
           return {
             success: false,
             error: confirmationResult.feedback || 'Command execution cancelled by user',
+          };
+        }
+      }
+
+      if (command === 'git' && gitSubcommand && GIT_ALLOWED_MUTATING_SUBCOMMANDS.has(gitSubcommand)) {
+        const mutationConfirmation = await this.confirmationService.requestConfirmation(
+          {
+            operation: `Run mutating git command (${gitSubcommand})`,
+            filename: confirmationLabel || `${command} ${normalizedArgs.join(' ')}`.trim(),
+            showVSCodeOpen: false,
+            content: `Mutating git command detected:\n${command} ${normalizedArgs.join(' ')}\nWorking directory: ${this.currentDirectory}`,
+          },
+          'bash'
+        );
+        if (!mutationConfirmation.confirmed) {
+          return {
+            success: false,
+            error: mutationConfirmation.feedback || 'Mutating git command cancelled by user',
           };
         }
       }
@@ -357,32 +385,26 @@ export class BashTool {
   }
 
   private async validateGitArgs(args: string[]): Promise<ToolResult> {
-    let firstNonFlag: string | undefined;
-    for (let index = 0; index < args.length; index += 1) {
-      const arg = args[index];
-      if (!arg) {
-        continue;
-      }
-      const normalized = arg.split('=')[0];
-      const flagConsumesNext = GIT_PATH_BEARING_FLAGS.has(normalized)
-        && !arg.includes('=')
-        && !(arg.startsWith('-C') && arg.length > 2);
+    const firstNonFlag = this.getGitSubcommand(args);
 
-      if (flagConsumesNext) {
-        index += 1;
-        continue;
-      }
-
-      if (!arg.startsWith('-')) {
-        firstNonFlag = arg;
-        break;
-      }
-    }
-
-    if (!firstNonFlag || !GIT_ALLOWED_SUBCOMMANDS.has(firstNonFlag)) {
+    if (!firstNonFlag) {
       return {
         success: false,
         error: `Git subcommand is not allowed by policy: ${firstNonFlag ?? 'none'}`,
+      };
+    }
+
+    if (GIT_BLOCKED_DESTRUCTIVE_SUBCOMMANDS.has(firstNonFlag)) {
+      return {
+        success: false,
+        error: `Git subcommand is blocked by policy: ${firstNonFlag}`,
+      };
+    }
+
+    if (!GIT_ALLOWED_READONLY_SUBCOMMANDS.has(firstNonFlag) && !GIT_ALLOWED_MUTATING_SUBCOMMANDS.has(firstNonFlag)) {
+      return {
+        success: false,
+        error: `Git subcommand is not allowed by policy: ${firstNonFlag}`,
       };
     }
 
@@ -738,6 +760,56 @@ export class BashTool {
     }
 
     return tokens;
+  }
+
+  private hasUnterminatedQuoteOrEscape(command: string): boolean {
+    let quote: '"' | "'" | null = null;
+    let escaping = false;
+
+    for (const char of command) {
+      if (escaping) {
+        escaping = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaping = true;
+        continue;
+      }
+
+      if (quote) {
+        if (char === quote) quote = null;
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        quote = char;
+      }
+    }
+
+    return escaping || quote !== null;
+  }
+
+  private getGitSubcommand(args: string[]): string | undefined {
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (!arg) continue;
+      const normalized = arg.split('=')[0];
+      const flagConsumesNext = GIT_PATH_BEARING_FLAGS.has(normalized)
+        && !arg.includes('=')
+        && !(arg.startsWith('-C') && arg.length > 2);
+
+      if (flagConsumesNext) {
+        index += 1;
+        continue;
+      }
+
+      if (!arg.startsWith('-')) {
+        return arg;
+      }
+    }
+
+    return undefined;
   }
 
   getCurrentDirectory(): string {
