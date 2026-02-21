@@ -13,6 +13,18 @@ const SECRET_VALUE_PATTERNS = [
   /\b[A-Fa-f0-9]{40,}\b/,
 ];
 
+function looksLikeSecretBlob(value: string): boolean {
+  if (value.length < 32) {
+    return false;
+  }
+  const compact = value.replace(/\s+/g, "");
+  if (compact.length < 32) {
+    return false;
+  }
+  const alphaNum = compact.replace(/[^A-Za-z0-9]/g, "").length;
+  return alphaNum / compact.length > 0.9;
+}
+
 function scrubSensitiveString(value: string): string {
   let output = value;
   for (const pattern of SECRET_VALUE_PATTERNS) {
@@ -39,6 +51,9 @@ function sanitize(value: unknown, depth = 0): unknown {
     );
   }
   if (typeof value === "string") {
+    if (looksLikeSecretBlob(value) && value.length > 256) {
+      return REDACTED;
+    }
     const scrubbed = scrubSensitiveString(value);
     if (scrubbed.length > 4096) {
       return `${scrubbed.slice(0, 4096)}...[TRUNCATED]`;

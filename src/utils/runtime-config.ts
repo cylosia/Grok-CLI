@@ -1,3 +1,5 @@
+import { sanitizeAndValidateBaseUrl } from "./settings-manager.js";
+
 export interface RuntimeConfig {
   grokApiKey: string;
   grokBaseUrl?: string;
@@ -15,7 +17,8 @@ function readEnvString(key: string): string | undefined {
 
 export function loadRuntimeConfig(): RuntimeConfig {
   const grokApiKey = readEnvString("GROK_API_KEY");
-  const grokBaseUrl = readEnvString("GROK_BASE_URL");
+  const rawBaseUrl = readEnvString("GROK_BASE_URL");
+  const grokBaseUrl = rawBaseUrl ? sanitizeAndValidateBaseUrl(rawBaseUrl) : undefined;
   if (!grokApiKey) {
     throw new Error("GROK_API_KEY is required");
   }

@@ -48,6 +48,8 @@ export class MCPManager {
   private static readonly MAX_TIMED_OUT_COOLDOWN_KEYS = 2_000;
   private static readonly SERVER_INIT_CONCURRENCY = 4;
   private inFlightToolCalls = new Map<string, Promise<{ content: unknown[] }>>();
+  private teardownByServer = new Map<MCPServerName, Promise<void>>();
+  private quarantinedServersUntil = new Map<MCPServerName, number>();
   private readonly callSafety = new MCPCallSafety({
     timedOutCallCooldownMs: MCPManager.TIMED_OUT_CALL_COOLDOWN_MS,
     remotelyUncertainTtlMs: MCPManager.REMOTELY_UNCERTAIN_TTL_MS,
@@ -223,13 +225,66 @@ export class MCPManager {
     this.servers.delete(name);
   }
 
+  private startServerQuarantine(name: MCPServerName): void {
+    this.quarantinedServersUntil.set(name, Date.now() + MCPManager.TIMED_OUT_CALL_COOLDOWN_MS);
+  }
+
+  private assertServerNotQuarantined(name: MCPServerName): void {
+    const blockedUntil = this.quarantinedServersUntil.get(name);
+    if (!blockedUntil) {
+      return;
+    }
+    if (blockedUntil <= Date.now()) {
+      this.quarantinedServersUntil.delete(name);
+      return;
+    }
+    throw new Error(`MCP server ${String(name)} is quarantined after a timeout; retry later`);
+  }
+
+  private forceDetachServer(name: MCPServerName): void {
+    this.servers.delete(name);
+    this.failedInitializationCooldownUntil.set(name, Date.now() + MCPManager.INIT_FAILURE_COOLDOWN_MS);
+    this.startServerQuarantine(name);
+  }
+
+  private teardownServerOnce(name: MCPServerName): Promise<void> {
+    const existing = this.teardownByServer.get(name);
+    if (existing) {
+      return existing;
+    }
+
+    const teardownPromise = this.teardownServer(name)
+      .catch((error: unknown) => {
+        logger.warn("mcp-server-teardown-failed", {
+          component: "mcp-client",
+          server: String(name),
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        this.teardownByServer.delete(name);
+      });
+
+    this.teardownByServer.set(name, teardownPromise);
+    return teardownPromise;
+  }
+
   private async teardownServerWithTimeout(name: MCPServerName): Promise<void> {
     await Promise.race([
-      this.teardownServer(name),
+      this.teardownServerOnce(name),
       new Promise<void>((resolve) => {
         setTimeout(resolve, MCPManager.TEARDOWN_TIMEOUT_MS);
       }),
     ]);
+
+    if (this.servers.has(name) || this.teardownByServer.has(name)) {
+      logger.warn("mcp-server-teardown-timeout", {
+        component: "mcp-client",
+        server: String(name),
+        timeoutMs: MCPManager.TEARDOWN_TIMEOUT_MS,
+      });
+      this.forceDetachServer(name);
+    }
   }
 
   private buildCallKey(name: string, args: Record<string, unknown>): string {
@@ -287,6 +342,7 @@ export class MCPManager {
       throw new Error(`Invalid MCP server name: ${parts[1]}`);
     }
     const toolName = parts.slice(2).join("__");
+    this.assertServerNotQuarantined(serverName);
     const callKey = this.buildCallKey(name, args);
     const existingCall = this.inFlightToolCalls.get(callKey);
     if (existingCall) {
@@ -308,6 +364,7 @@ export class MCPManager {
         timeoutHandle = setTimeout(() => {
           const timeoutError = new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`);
           this.callSafety.registerTimeout(callKey, serverName);
+          this.startServerQuarantine(serverName);
           controller.abort(timeoutError);
           this.teardownServerWithTimeout(serverName)
             .then(() => {
