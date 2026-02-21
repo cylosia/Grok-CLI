@@ -45,6 +45,7 @@ export class MCPManager {
   private static readonly REMOTELY_UNCERTAIN_TTL_MS = 10 * 60_000;
   private static readonly MAX_REMOTELY_UNCERTAIN_KEYS = 1_000;
   private static readonly MAX_TIMED_OUT_COOLDOWN_KEYS = 2_000;
+  private static readonly SERVER_INIT_CONCURRENCY = 4;
   private timedOutCallCooldownUntil = new Map<string, number>();
   private inFlightToolCalls = new Map<string, Promise<{ content: unknown[] }>>();
   private remotelyUncertainCallKeys = new Map<string, number>();
@@ -154,7 +155,8 @@ export class MCPManager {
     const config = loadMCPConfig();
     const now = Date.now();
     let hadFailures = false;
-    for (const server of config.servers) {
+
+    const pendingServers = config.servers.filter((server) => {
       const serverName = parseMCPServerName(server.name);
       if (!serverName) {
         hadFailures = true;
@@ -162,28 +164,45 @@ export class MCPManager {
           component: "mcp-client",
           server: server.name,
         });
-        continue;
+        return false;
       }
+
       const cooldownUntil = this.failedInitializationCooldownUntil.get(serverName) ?? 0;
-      if (cooldownUntil > now || this.servers.has(serverName)) {
-        continue;
-      }
+      return cooldownUntil <= now && !this.servers.has(serverName);
+    });
 
-      try {
-        await this.addServer(server);
-        this.failedInitializationCooldownUntil.delete(serverName);
-      } catch (error) {
-        hadFailures = true;
-        this.failedInitializationCooldownUntil.set(serverName, now + MCPManager.INIT_FAILURE_COOLDOWN_MS);
-        logger.warn("mcp-server-initialize-failed", {
-          component: "mcp-client",
-          server: server.name,
-          cooldownMs: MCPManager.INIT_FAILURE_COOLDOWN_MS,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
+    let index = 0;
+    const workers = Array.from({ length: Math.min(MCPManager.SERVER_INIT_CONCURRENCY, pendingServers.length) }, async () => {
+      while (index < pendingServers.length) {
+        const currentIndex = index;
+        index += 1;
+        const server = pendingServers[currentIndex];
+        if (!server) {
+          continue;
+        }
+        const serverName = parseMCPServerName(server.name);
+        if (!serverName) {
+          hadFailures = true;
+          continue;
+        }
 
+        try {
+          await this.addServer(server);
+          this.failedInitializationCooldownUntil.delete(serverName);
+        } catch (error) {
+          hadFailures = true;
+          this.failedInitializationCooldownUntil.set(serverName, now + MCPManager.INIT_FAILURE_COOLDOWN_MS);
+          logger.warn("mcp-server-initialize-failed", {
+            component: "mcp-client",
+            server: server.name,
+            cooldownMs: MCPManager.INIT_FAILURE_COOLDOWN_MS,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    });
+
+    await Promise.all(workers);
     this.initialized = !hadFailures;
   }
 

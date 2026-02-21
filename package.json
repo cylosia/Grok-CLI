@@ -10,7 +10,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "npm run -s typecheck && npm run -s test:unit",
-    "audit:ci": "mkdir -p sbom && npm audit --audit-level=high --json > sbom/npm-audit.json",
+    "audit:ci": "mkdir -p sbom && (npm audit --audit-level=high --json > sbom/npm-audit.json || (npm ls --all --json > sbom/npm-sbom.json && echo \"npm audit failed or unavailable; generated sbom/npm-sbom.json for triage\" >&2 && exit 1))",
     "test:unit": "tsx --test test/**/*.test.ts",
     "lint": "eslint src test --ext .ts,.tsx",
     "sbom:generate": "mkdir -p sbom && npm ls --all --json > sbom/npm-sbom.json"

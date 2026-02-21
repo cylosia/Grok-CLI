@@ -225,12 +225,12 @@ export class SettingsManager {
       this.userSettingsCache = merged;
       return merged;
     } catch (error) {
-      logger.warn("load-user-settings-failed", {
+      logger.error("load-user-settings-failed", {
         component: "settings-manager",
+        filePath: this.userSettingsPath,
         error: error instanceof Error ? error.message : String(error),
       });
-      this.userSettingsCache = { ...DEFAULT_USER_SETTINGS };
-      return { ...DEFAULT_USER_SETTINGS };
+      throw error;
     }
   }
 
@@ -305,12 +305,12 @@ export class SettingsManager {
       this.projectSettingsCache = merged;
       return merged;
     } catch (error) {
-      logger.warn("load-project-settings-failed", {
+      logger.error("load-project-settings-failed", {
         component: "settings-manager",
+        filePath: this.projectSettingsPath,
         error: error instanceof Error ? error.message : String(error),
       });
-      this.projectSettingsCache = { ...DEFAULT_PROJECT_SETTINGS };
-      return { ...DEFAULT_PROJECT_SETTINGS };
+      throw error;
     }
   }
 

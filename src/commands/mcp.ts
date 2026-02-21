@@ -81,6 +81,19 @@ function getServerFingerprint(config: MCPServerConfig): string {
   })).digest('hex');
 }
 
+async function addServerAtomically(name: string, config: MCPServerConfig): Promise<void> {
+  const manager = getMCPManager();
+  await manager.addServer(config);
+
+  try {
+    await addMCPServer(config);
+    await setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
+  } catch (error) {
+    await manager.removeServer(name);
+    throw error;
+  }
+}
+
 export function createMCPCommand(): Command {
   const mcpCommand = new Command('mcp');
   mcpCommand.description('Manage MCP (Model Context Protocol) servers');
@@ -100,11 +113,8 @@ export function createMCPCommand(): Command {
         // Check if it's a predefined server
         if (PREDEFINED_SERVERS[name]) {
           const config = PREDEFINED_SERVERS[name];
+          await addServerAtomically(name, config);
           const manager = getMCPManager();
-          await manager.addServer(config);
-
-          await addMCPServer(config);
-          await setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
           console.log(chalk.green(`✓ Added predefined MCP server: ${name}`));
           console.log(chalk.green(`✓ Connected to MCP server: ${name}`));
           
@@ -162,11 +172,8 @@ export function createMCPCommand(): Command {
           transport,
         };
 
+        await addServerAtomically(name, config);
         const manager = getMCPManager();
-        await manager.addServer(config);
-
-        await addMCPServer(config);
-        await setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
         console.log(chalk.green(`✓ Added MCP server: ${name}`));
         console.log(chalk.green(`✓ Connected to MCP server: ${name}`));
         
@@ -208,11 +215,8 @@ export function createMCPCommand(): Command {
           transport: transportConfig,
         };
 
+        await addServerAtomically(name, serverConfig);
         const manager = getMCPManager();
-        await manager.addServer(serverConfig);
-
-        await addMCPServer(serverConfig);
-        await setTrustedMCPServerFingerprint(name, getServerFingerprint(serverConfig));
         console.log(chalk.green(`✓ Added MCP server: ${name}`));
         console.log(chalk.green(`✓ Connected to MCP server: ${name}`));
         
