@@ -5,6 +5,8 @@ import { loadRuntimeConfig } from "./utils/runtime-config.js";
 import { getMCPManager } from "./grok/tools.js";
 import { logger } from "./utils/logger.js";
 
+const SHUTDOWN_TIMEOUT_MS = 5_000;
+
 void (async () => {
   const args = process.argv.slice(2);
 
@@ -44,12 +46,20 @@ Full TUI launches automatically when TTY is detected.
     try {
       const manager = getMCPManager();
       const servers = manager.getServers();
-      await Promise.allSettled(servers.map((server) => manager.removeServer(server)));
+      await Promise.race([
+        Promise.allSettled(servers.map((server) => manager.removeServer(server))),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error(`Shutdown cleanup timed out after ${SHUTDOWN_TIMEOUT_MS}ms`)), SHUTDOWN_TIMEOUT_MS);
+        }),
+      ]);
     } catch (error) {
       logger.warn("shutdown-cleanup-failed", {
         component: "index",
         error: error instanceof Error ? error.message : String(error),
       });
+      if (exitCode === 0) {
+        exitCode = 1;
+      }
     }
 
     process.exit(exitCode);

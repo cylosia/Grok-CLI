@@ -92,7 +92,10 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
   }
 
   async connect(): Promise<Transport> {
-    await validateMcpUrl(this.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
+    await validateMcpUrl(this.url, {
+      allowLocalHttp: process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1",
+      allowPrivateHttps: process.env.GROK_ALLOW_PRIVATE_MCP_HTTPS === "1",
+    });
     throw new Error("HTTP MCP transport is temporarily disabled until full duplex SDK transport support is implemented");
   }
 
@@ -117,7 +120,10 @@ export class SSETransport extends EventEmitter implements MCPTransport {
   }
 
   async connect(): Promise<Transport> {
-    await validateMcpUrl(this.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
+    await validateMcpUrl(this.url, {
+      allowLocalHttp: process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1",
+      allowPrivateHttps: process.env.GROK_ALLOW_PRIVATE_MCP_HTTPS === "1",
+    });
     throw new Error("SSE MCP transport is temporarily disabled until full duplex SDK transport support is implemented");
   }
 

@@ -43,6 +43,22 @@ export class MCPManager {
   private static readonly TIMED_OUT_CALL_COOLDOWN_MS = 30_000;
   private timedOutCallCooldownUntil = new Map<string, number>();
 
+  private safeSerializeForHash(value: unknown): string {
+    const seen = new WeakSet<object>();
+    return JSON.stringify(value, (_key, current) => {
+      if (typeof current === "bigint") {
+        return current.toString();
+      }
+      if (current && typeof current === "object") {
+        if (seen.has(current)) {
+          return "[CIRCULAR]";
+        }
+        seen.add(current);
+      }
+      return current;
+    });
+  }
+
   private getServerFingerprint(config: MCPServerConfig): string {
     const payload = {
       name: config.name,
@@ -203,7 +219,7 @@ export class MCPManager {
   }
 
   private buildCallKey(name: string, args: Record<string, unknown>): string {
-    return createHash("sha256").update(JSON.stringify({ name, args })).digest("hex");
+    return createHash("sha256").update(this.safeSerializeForHash({ name, args })).digest("hex");
   }
 
   private assertCallNotCoolingDown(callKey: string, name: string): void {
@@ -241,14 +257,17 @@ export class MCPManager {
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutHandle = setTimeout(() => {
+          const timeoutError = new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`);
           this.timedOutCallCooldownUntil.set(callKey, Date.now() + MCPManager.TIMED_OUT_CALL_COOLDOWN_MS);
-          reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
-          void this.teardownServerWithTimeout(serverName).catch((teardownError) => {
+          void this.teardownServerWithTimeout(serverName).then(() => {
+            reject(timeoutError);
+          }).catch((teardownError) => {
             logger.warn("mcp-server-teardown-after-timeout-failed", {
               component: "mcp-client",
               server: String(serverName),
               error: teardownError instanceof Error ? teardownError.message : String(teardownError),
             });
+            reject(timeoutError);
           });
         }, MCPManager.TOOL_CALL_TIMEOUT_MS);
       });

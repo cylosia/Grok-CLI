@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import { GrokClient, GrokMessage, GrokTool, GrokToolCall } from "../grok/client.js";
+import { GrokClient, GrokTool, GrokToolCall } from "../grok/client.js";
 import { getAllGrokTools } from "../grok/tools.js";
 import { getMCPManager } from "../grok/tools.js";
 import {
@@ -16,40 +16,8 @@ import { loadCustomInstructions } from "../utils/custom-instructions.js";
 import { getSettingsManager } from "../utils/settings-manager.js";
 import { AgentSupervisor, TaskResult } from "./supervisor.js";
 import { ConcurrencyGate } from "./concurrency-gate.js";
-
-const MAX_TOOL_ARGS_BYTES = 100_000;
-const MAX_CHAT_HISTORY_ENTRIES = 500;
-const MAX_MESSAGE_ENTRIES = 500;
-
-function isTodoItem(value: unknown): value is { id: string; content: string; status: "pending" | "in_progress" | "completed"; priority: "high" | "medium" | "low" } {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return typeof record.id === "string"
-    && typeof record.content === "string"
-    && (record.status === "pending" || record.status === "in_progress" || record.status === "completed")
-    && (record.priority === "high" || record.priority === "medium" || record.priority === "low");
-}
-
-function isTodoUpdate(value: unknown): value is { id: string; status?: "pending" | "in_progress" | "completed"; content?: string; priority?: "high" | "medium" | "low" } {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return typeof record.id === "string"
-    && (record.status === undefined || record.status === "pending" || record.status === "in_progress" || record.status === "completed")
-    && (record.content === undefined || typeof record.content === "string")
-    && (record.priority === undefined || record.priority === "high" || record.priority === "medium" || record.priority === "low");
-}
-
-function parseToolArgs(argsRaw: string): Record<string, unknown> {
-  if (argsRaw.length > MAX_TOOL_ARGS_BYTES) {
-    throw new Error(`Tool arguments exceed ${MAX_TOOL_ARGS_BYTES} bytes`);
-  }
-
-  const parsed = JSON.parse(argsRaw) as unknown;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Tool arguments must be a JSON object");
-  }
-  return parsed as Record<string, unknown>;
-}
+import { ConversationState } from "./conversation-state.js";
+import { isTodoItem, isTodoUpdate, parseToolArgs, safeSerializeToolData } from "./tool-utils.js";
 
 export interface ChatEntry {
   type: "user" | "assistant" | "tool_result" | "tool_call";
@@ -78,8 +46,7 @@ export class GrokAgent extends EventEmitter {
   private todoTool: TodoTool;
   private confirmationTool: ConfirmationTool;
   private search: SearchTool;
-  private chatHistory: ChatEntry[] = [];
-  private messages: GrokMessage[] = [];
+  private conversationState = new ConversationState();
   private tokenCounter: TokenCounter;
   private abortController: AbortController | null = null;
   private mcpInitialized = false;
@@ -87,37 +54,6 @@ export class GrokAgent extends EventEmitter {
   private maxToolRounds: number;
   private supervisor: AgentSupervisor | null;
   private concurrencyGate = new ConcurrencyGate();
-
-  private safeSerializeToolData(data: unknown): string {
-    const seen = new WeakSet<object>();
-    try {
-      return JSON.stringify(data ?? {}, (_key, value) => {
-        if (typeof value === "bigint") {
-          return value.toString();
-        }
-        if (value && typeof value === "object") {
-          if (seen.has(value)) {
-            return "[CIRCULAR]";
-          }
-          seen.add(value);
-        }
-        return value;
-      });
-    } catch {
-      return "[unserializable tool payload]";
-    }
-  }
-
-  private trimBuffers(): void {
-    if (this.chatHistory.length > MAX_CHAT_HISTORY_ENTRIES) {
-      this.chatHistory = this.chatHistory.slice(-MAX_CHAT_HISTORY_ENTRIES);
-    }
-    if (this.messages.length > MAX_MESSAGE_ENTRIES) {
-      const systemMessage = this.messages[0];
-      const tail = this.messages.slice(-(MAX_MESSAGE_ENTRIES - 1));
-      this.messages = systemMessage ? [systemMessage, ...tail] : tail;
-    }
-  }
 
   constructor(
     apiKey: string,
@@ -156,7 +92,7 @@ export class GrokAgent extends EventEmitter {
       .filter(Boolean)
       .join("\n\n");
 
-    this.messages = [{ role: "system", content: systemPrompt }];
+    this.conversationState.setSystemPrompt(systemPrompt);
   }
 
   private async initializeMCP(): Promise<void> {
@@ -184,24 +120,21 @@ export class GrokAgent extends EventEmitter {
       timestamp: new Date(),
     };
 
-    this.chatHistory.push(userEntry);
-    this.trimBuffers();
+    this.conversationState.addChatEntry(userEntry);
     entries.push(userEntry);
-    this.messages.push({ role: "user", content: message });
-    this.trimBuffers();
+    this.conversationState.addMessage({ role: "user", content: message });
 
     this.abortController = new AbortController();
     const tools = await getAllGrokTools();
     let toolRounds = 0;
 
     while (toolRounds < this.maxToolRounds) {
-      const assistantMessage = await this.grokClient.chat(this.messages, {
+      const assistantMessage = await this.grokClient.chat(this.conversationState.getMessages(), {
         tools,
         signal: this.abortController.signal,
       });
 
-      this.messages.push(assistantMessage);
-      this.trimBuffers();
+      this.conversationState.addMessage(assistantMessage);
 
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
         const toolCallEntry: ChatEntry = {
@@ -211,7 +144,7 @@ export class GrokAgent extends EventEmitter {
           timestamp: new Date(),
         };
         entries.push(toolCallEntry);
-        this.chatHistory.push(toolCallEntry);
+        this.conversationState.addChatEntry(toolCallEntry);
 
         for (const toolCall of assistantMessage.tool_calls) {
           const result = await this.executeTool(toolCall);
@@ -223,17 +156,15 @@ export class GrokAgent extends EventEmitter {
             timestamp: new Date(),
           };
           entries.push(toolResultEntry);
-          this.chatHistory.push(toolResultEntry);
-          this.trimBuffers();
+          this.conversationState.addChatEntry(toolResultEntry);
 
-          this.messages.push({
+          this.conversationState.addMessage({
             role: "tool",
             tool_call_id: toolCall.id,
             content: result.success
-              ? result.output || this.safeSerializeToolData(result.data)
+              ? result.output || safeSerializeToolData(result.data)
               : result.error || "Tool failed",
           });
-          this.trimBuffers();
         }
 
         toolRounds += 1;
@@ -248,8 +179,7 @@ export class GrokAgent extends EventEmitter {
       };
 
       entries.push(assistantEntry);
-      this.chatHistory.push(assistantEntry);
-      this.trimBuffers();
+      this.conversationState.addChatEntry(assistantEntry);
       return entries;
     }
 
@@ -258,8 +188,7 @@ export class GrokAgent extends EventEmitter {
       content: "Stopped after reaching maximum tool rounds.",
       timestamp: new Date(),
     };
-    this.chatHistory.push(failEntry);
-    this.trimBuffers();
+    this.conversationState.addChatEntry(failEntry);
     entries.push(failEntry);
     return entries;
     });
@@ -272,9 +201,8 @@ export class GrokAgent extends EventEmitter {
       content: message,
       timestamp: new Date(),
     };
-    this.chatHistory.push(userEntry);
-    this.messages.push({ role: "user", content: message });
-    this.trimBuffers();
+    this.conversationState.addChatEntry(userEntry);
+    this.conversationState.addMessage({ role: "user", content: message });
 
     const totalTokens = this.tokenCounter.countTokens(message);
     yield { type: "token_count", tokenCount: totalTokens };
@@ -288,7 +216,7 @@ export class GrokAgent extends EventEmitter {
         const assistantParts: string[] = [];
         let latestToolCalls: GrokToolCall[] = [];
 
-        for await (const chunk of this.grokClient.chatStream(this.messages, {
+        for await (const chunk of this.grokClient.chatStream(this.conversationState.getMessages(), {
           tools,
           signal: this.abortController.signal,
         })) {
@@ -304,18 +232,17 @@ export class GrokAgent extends EventEmitter {
         }
 
         const assistantContent = assistantParts.join("");
-        this.messages.push({
+        this.conversationState.addMessage({
           role: "assistant",
           content: assistantContent,
           ...(latestToolCalls.length > 0 ? { tool_calls: latestToolCalls } : {}),
         });
-        this.chatHistory.push({
+        this.conversationState.addChatEntry({
           type: "assistant",
           content: assistantContent,
           timestamp: new Date(),
           ...(latestToolCalls.length > 0 ? { toolCalls: latestToolCalls } : {}),
         });
-        this.trimBuffers();
 
         if (latestToolCalls.length === 0) {
           yield { type: "done" };
@@ -324,21 +251,20 @@ export class GrokAgent extends EventEmitter {
 
         for (const toolCall of latestToolCalls) {
           const toolResult = await this.executeTool(toolCall);
-          this.messages.push({
+          this.conversationState.addMessage({
             role: "tool",
             tool_call_id: toolCall.id,
             content: toolResult.success
-              ? toolResult.output || this.safeSerializeToolData(toolResult.data)
+              ? toolResult.output || safeSerializeToolData(toolResult.data)
               : toolResult.error || "Tool failed",
           });
-          this.chatHistory.push({
+          this.conversationState.addChatEntry({
             type: "tool_result",
             content: toolResult.success ? toolResult.output || "Success" : toolResult.error || "Tool failed",
             timestamp: new Date(),
             toolCall,
             toolResult,
           });
-          this.trimBuffers();
           yield { type: "tool_result", toolCall, toolResult };
         }
 
@@ -442,7 +368,7 @@ export class GrokAgent extends EventEmitter {
   }
 
   getChatHistory(): ChatEntry[] {
-    return [...this.chatHistory];
+    return this.conversationState.getChatHistory();
   }
 
   getCurrentModel(): string {

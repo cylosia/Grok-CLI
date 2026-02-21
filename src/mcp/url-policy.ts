@@ -83,7 +83,14 @@ async function resolveStableHostAddresses(host: string): Promise<string[]> {
   return a;
 }
 
-export async function validateMcpUrl(rawUrl: string, allowLocalHttp = false): Promise<string> {
+export interface McpUrlValidationOptions {
+  allowLocalHttp?: boolean;
+  allowPrivateHttps?: boolean;
+}
+
+export async function validateMcpUrl(rawUrl: string, options: McpUrlValidationOptions = {}): Promise<string> {
+  const allowLocalHttp = options.allowLocalHttp ?? false;
+  const allowPrivateHttps = options.allowPrivateHttps ?? false;
   const normalized = rawUrl.trim();
 
   const URLCtor = (globalThis as { URL?: new (input: string) => { protocol: string; hostname: string; toString(): string } }).URL;
@@ -117,7 +124,7 @@ export async function validateMcpUrl(rawUrl: string, allowLocalHttp = false): Pr
     }
   }
 
-  if (scheme === "https" && hostIsPrivate && !allowLocalHttp) {
+  if (scheme === "https" && hostIsPrivate && !allowPrivateHttps) {
     throw new Error("Private-network MCP URLs require explicit local-network opt-in");
   }
 
