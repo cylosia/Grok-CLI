@@ -198,6 +198,10 @@ export class SSETransport extends EventEmitter implements MCPTransport {
   }
 }
 
+function assertNever(value: never): never {
+  throw new Error(`Unsupported transport type: ${String(value)}`);
+}
+
 export function createTransport(config: TransportConfig): MCPTransport {
   switch (config.type) {
     case 'stdio':
@@ -207,6 +211,6 @@ export function createTransport(config: TransportConfig): MCPTransport {
     case 'sse':
       return new SSETransport(config);
     default:
-      throw new Error(`Unsupported transport type: ${config.type}`);
+      return assertNever(config.type);
   }
 }

@@ -133,6 +133,11 @@ export class BashTool {
         }
       }
 
+      const preflight = await this.revalidateResolvedArgs(command, normalizedArgs);
+      if (!preflight.success) {
+        return preflight;
+      }
+
       const result = await this.runCommand(command, normalizedArgs, timeout);
       return {
         success: result.code === 0,
@@ -145,6 +150,113 @@ export class BashTool {
         error: `Command failed: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
+  }
+
+  private async revalidateResolvedArgs(command: string, args: string[]): Promise<ToolResult> {
+    if (!PATH_ARG_COMMANDS.has(command) && command !== "git") {
+      return { success: true };
+    }
+
+    const pathArgs = this.collectNormalizedPathArgs(command, args);
+    for (const candidate of pathArgs) {
+      const validation = await this.validateCanonicalPathAtExecution(candidate);
+      if (!validation.success) {
+        return validation;
+      }
+    }
+
+    return { success: true };
+  }
+
+  private collectNormalizedPathArgs(command: string, args: string[]): string[] {
+    const results: string[] = [];
+
+    if (command === "git") {
+      for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index];
+        if (!arg) continue;
+        if (arg === "--") {
+          for (let pathIndex = index + 1; pathIndex < args.length; pathIndex += 1) {
+            const candidate = args[pathIndex];
+            if (candidate && !candidate.startsWith("-")) results.push(candidate);
+          }
+          break;
+        }
+
+        const [normalizedFlag] = arg.split("=");
+        const inlineValue = arg.includes("=") ? arg.split("=").slice(1).join("=") : undefined;
+        if (GIT_PATH_BEARING_FLAGS.has(normalizedFlag) || arg === "-C" || arg.startsWith("-C")) {
+          const gitShortInline = arg.startsWith("-C") && arg.length > 2 && !arg.includes("=") ? arg.slice(2) : undefined;
+          const value = inlineValue ?? gitShortInline ?? args[index + 1];
+          if (value) results.push(value);
+          if (!inlineValue && !gitShortInline) {
+            index += 1;
+          }
+        }
+      }
+      return results;
+    }
+
+    const pathFlags = PATH_FLAGS_BY_COMMAND[command] ?? new Set<string>();
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (!arg) continue;
+
+      if (arg.startsWith("-")) {
+        let normalized = arg.split("=")[0];
+        let inlineValue = arg.includes("=") ? arg.split("=").slice(1).join("=") : undefined;
+        if (!pathFlags.has(normalized)) {
+          for (const candidate of pathFlags) {
+            if (candidate.length === 2 && arg.startsWith(candidate) && arg.length > candidate.length) {
+              normalized = candidate;
+              inlineValue = arg.slice(candidate.length);
+              break;
+            }
+          }
+        }
+
+        if (pathFlags.has(normalized)) {
+          const value = inlineValue ?? args[index + 1];
+          if (value) results.push(value);
+          if (!inlineValue) index += 1;
+        }
+        continue;
+      }
+
+      results.push(arg);
+    }
+
+    return results;
+  }
+
+  private async validateCanonicalPathAtExecution(candidate: string): Promise<ToolResult> {
+    if (!path.isAbsolute(candidate)) {
+      return { success: false, error: `Path argument must be canonicalized before execution: ${candidate}` };
+    }
+
+    const workspaceRoot = await this.canonicalWorkspaceRootPromise;
+    if (!this.isWithinWorkspace(workspaceRoot, candidate)) {
+      return { success: false, error: `Path argument is not allowed outside workspace: ${candidate}` };
+    }
+
+    let cursor = candidate;
+    while (true) {
+      try {
+        const stats = await fs.lstat(cursor);
+        if (stats.isSymbolicLink()) {
+          return { success: false, error: `Symbolic link path arguments are blocked at execution time: ${candidate}` };
+        }
+      } catch {
+        // ignore missing path components
+      }
+      const parent = path.dirname(cursor);
+      if (parent === cursor || !this.isWithinWorkspace(workspaceRoot, parent)) {
+        break;
+      }
+      cursor = parent;
+    }
+
+    return { success: true };
   }
 
   private async runCommand(command: string, args: string[], timeout: number): Promise<{ code: number | null; output: string }> {
