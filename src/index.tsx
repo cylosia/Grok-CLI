@@ -8,6 +8,12 @@ import { getCliVersion } from "./utils/version.js";
 
 const SHUTDOWN_TIMEOUT_MS = 5_000;
 
+function drainStream(stream: NodeJS.WriteStream): Promise<void> {
+  return new Promise((resolve) => {
+    stream.write("", () => resolve());
+  });
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
@@ -64,7 +70,8 @@ Full TUI launches automatically when TTY is detected.
       }
     }
 
-    process.exit(exitCode);
+    process.exitCode = exitCode;
+    await Promise.allSettled([drainStream(process.stdout), drainStream(process.stderr)]);
   };
 
   process.on("SIGINT", () => {
@@ -74,7 +81,7 @@ Full TUI launches automatically when TTY is detected.
         signal: "SIGINT",
         error: error instanceof Error ? error.message : String(error),
       });
-      process.exit(1);
+      process.exitCode = 1;
     });
   });
   process.on("SIGTERM", () => {
@@ -84,7 +91,7 @@ Full TUI launches automatically when TTY is detected.
         signal: "SIGTERM",
         error: error instanceof Error ? error.message : String(error),
       });
-      process.exit(1);
+      process.exitCode = 1;
     });
   });
 
@@ -102,7 +109,7 @@ Full TUI launches automatically when TTY is detected.
         signal: "UNHANDLED_REJECTION",
         error: shutdownError instanceof Error ? shutdownError.message : String(shutdownError),
       });
-      process.exit(1);
+      process.exitCode = 1;
     });
   });
 
@@ -119,7 +126,7 @@ Full TUI launches automatically when TTY is detected.
         signal: "UNCAUGHT_EXCEPTION",
         error: shutdownError instanceof Error ? shutdownError.message : String(shutdownError),
       });
-      process.exit(1);
+      process.exitCode = 1;
     });
   });
 
@@ -157,5 +164,5 @@ main().catch((error: unknown) => {
     error: error instanceof Error ? error.message : String(error),
     ...(process.env.GROK_DEBUG_STACKS === "true" && error instanceof Error ? { errorStack: error.stack } : {}),
   });
-  process.exit(1);
+  process.exitCode = 1;
 });

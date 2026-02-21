@@ -30,7 +30,7 @@ export class TextEditorTool {
   }
 
   private async createFileNoFollow(targetPath: string, content: string): Promise<void> {
-    const handle = await openFile(targetPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW, 0o600);
+    const handle = await openFile(targetPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
     try {
       await handle.writeFile(content, { encoding: "utf-8" });
     } finally {
@@ -252,6 +252,12 @@ export class TextEditorTool {
         output: diff,
       };
     } catch (error: unknown) {
+      if (error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST") {
+        return {
+          success: false,
+          error: `File already exists: ${filePath}`,
+        };
+      }
       return {
         success: false,
         error: `Error creating ${filePath}: ${error instanceof Error ? error.message : String(error)}`,

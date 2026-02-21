@@ -1,5 +1,6 @@
 import { GrokAgent } from "./grok-agent.js";
 import { Repomap2 } from "./repomap.js";
+import { logger } from "../utils/logger.js";
 
 export interface VisionRequest {
   imageBase64: string;
@@ -16,7 +17,7 @@ export class VisionEngine {
   }
 
   async analyzeScreenshot(imageBase64: string, prompt: string) {
-    console.log("📸 Vision Engine analyzing screenshot...");
+    logger.info("vision-analyze-screenshot", { component: "vision-engine", promptLength: prompt.length });
     const context = await this.repomap.getRelevantFiles(prompt, 5);
     const result = await this.agent.processUserMessage(`Analyze this image: ${prompt}\nRelevant files: ${context.join(", ")}\nImage data: ${imageBase64.slice(0, 100)}...`);
     return result;

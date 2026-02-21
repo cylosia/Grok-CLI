@@ -23,9 +23,29 @@ const MCP_ENV_ALLOWLIST = new Set([
   "MCP_REMOTE_QUIET",
   "MCP_REMOTE_SILENT",
 ]);
+const DEFAULT_PASSTHROUGH_ENV_KEYS = process.platform === "win32"
+  ? ["PATH", "SystemRoot", "ComSpec"]
+  : ["PATH"];
 
 function isAllowedMcpEnvKey(key: string): boolean {
   return MCP_ENV_ALLOWLIST.has(key);
+}
+
+function readPassthroughEnv(): Record<string, string> {
+  const configured = process.env.GROK_MCP_PASSTHROUGH_ENV ?? "";
+  const extraKeys = configured
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => /^[A-Z0-9_]{1,64}$/i.test(entry));
+
+  const allowedKeys = new Set<string>([...DEFAULT_PASSTHROUGH_ENV_KEYS, ...extraKeys]);
+  return [...allowedKeys].reduce<Record<string, string>>((acc, key) => {
+    const value = process.env[key];
+    if (typeof value === "string") {
+      acc[key] = value;
+    }
+    return acc;
+  }, {});
 }
 const DEFAULT_MCP_TOOL_TIMEOUT_MS = "30000";
 const DEFAULT_MCP_CHILD_KILL_GRACE_MS = "1500";
@@ -68,14 +88,7 @@ export class StdioTransport implements MCPTransport {
   }
 
   async connect(): Promise<Transport> {
-    const allowlistedEnvKeys = ["PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "LC_ALL"];
-    const baseEnv = allowlistedEnvKeys.reduce<Record<string, string>>((acc, key) => {
-      const value = process.env[key];
-      if (typeof value === "string") {
-        acc[key] = value;
-      }
-      return acc;
-    }, {});
+    const baseEnv = readPassthroughEnv();
 
     // Create transport with sanitized environment variables to suppress verbose output
     const overrides = this.config.env || {};
@@ -139,9 +152,20 @@ export class StdioTransport implements MCPTransport {
 
   }
 
+  private extractTransportPid(candidate: unknown): number | undefined {
+    if (!candidate || typeof candidate !== "object") {
+      return undefined;
+    }
+    const processValue = Reflect.get(candidate as object, "process");
+    if (!processValue || typeof processValue !== "object") {
+      return undefined;
+    }
+    const pidValue = Reflect.get(processValue as object, "pid");
+    return typeof pidValue === "number" ? pidValue : undefined;
+  }
+
   async forceDisconnect(): Promise<void> {
-    const internal = this.transport as unknown as { process?: { pid?: number } } | null;
-    const pid = internal?.process?.pid;
+    const pid = this.extractTransportPid(this.transport);
     if (typeof pid === "number") {
       killProcessTree(pid, "SIGKILL");
     }
