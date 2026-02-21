@@ -3,6 +3,7 @@ import { ToolResult } from "../types/index.js";
 import fs from "fs-extra";
 import * as path from "path";
 import { logger } from "../utils/logger.js";
+import { sanitizeTerminalText } from "../utils/terminal-sanitize.js";
 import { isWithinRoot } from "./path-safety.js";
 
 const MAX_RG_OUTPUT_BYTES = 2_000_000;
@@ -104,7 +105,7 @@ export class SearchTool {
       if (results.length === 0) {
         return {
           success: true,
-          output: `No results found for "${query}"`,
+          output: `No results found for "${sanitizeTerminalText(query)}"`,
         };
       }
 
@@ -470,10 +471,11 @@ export class SearchTool {
     _searchType: string
   ): string {
     if (results.length === 0) {
-      return `No results found for "${query}"`;
+      return `No results found for "${sanitizeTerminalText(query)}"`;
     }
 
-    let output = `Search results for "${query}":\n`;
+    const safeQuery = sanitizeTerminalText(query);
+    let output = `Search results for "${safeQuery}":\n`;
 
     // Separate text and file results
     const textResults = results.filter((r) => r.type === "text");
@@ -500,7 +502,7 @@ export class SearchTool {
       // Count matches in this file for text results
       const matchCount = textResults.filter((r) => r.file === file).length;
       const matchIndicator = matchCount > 0 ? ` (${matchCount} matches)` : "";
-      output += `  ${file}${matchIndicator}\n`;
+      output += `  ${sanitizeTerminalText(file)}${matchIndicator}\n`;
     });
 
     // Show "+X more" if there are additional results

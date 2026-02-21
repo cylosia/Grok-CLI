@@ -70,3 +70,43 @@ test('mcp manager prunes expired timeout cooldown entries and caps map size', ()
   assert.equal(manager.callSafety.timedOutCallCooldownUntil.has('expired'), false);
   assert.ok(manager.callSafety.timedOutCallCooldownUntil.size <= 2000);
 });
+
+
+test('stdio transport rejects out-of-range MCP_TOOL_TIMEOUT_MS from env', async () => {
+  const previous = process.env.MCP_TOOL_TIMEOUT_MS;
+  process.env.MCP_TOOL_TIMEOUT_MS = '9999999';
+  try {
+    const transport = createTransport({
+      type: 'stdio',
+      command: 'node',
+      args: ['-e', ''],
+    });
+
+    await assert.rejects(
+      () => transport.connect(),
+      /MCP_TOOL_TIMEOUT_MS must be an integer between/
+    );
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MCP_TOOL_TIMEOUT_MS;
+    } else {
+      process.env.MCP_TOOL_TIMEOUT_MS = previous;
+    }
+  }
+});
+
+test('stdio transport rejects out-of-range MCP_MAX_OUTPUT_BYTES from override', async () => {
+  const transport = createTransport({
+    type: 'stdio',
+    command: 'node',
+    args: ['-e', ''],
+    env: {
+      MCP_MAX_OUTPUT_BYTES: '1',
+    },
+  });
+
+  await assert.rejects(
+    () => transport.connect(),
+    /MCP_MAX_OUTPUT_BYTES must be an integer between/
+  );
+});
