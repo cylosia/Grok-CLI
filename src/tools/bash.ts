@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs-extra';
 import { ToolResult } from '../types/index.js';
 import { ConfirmationService } from '../utils/confirmation-service.js';
+import { isWithinRoot } from './path-safety.js';
 
 const ALLOWED_COMMANDS = new Set([
   'git', 'ls', 'pwd', 'cat', 'mkdir', 'touch', 'echo', 'grep', 'find', 'rg'
@@ -13,7 +14,7 @@ const BLOCKED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   find: new Set(['-exec', '-execdir', '-ok', '-okdir']),
   rg: new Set(['--pre', '--pre-glob', '--no-ignore-files', '--ignore-file']),
   grep: new Set(['--include-from', '--exclude-from', '-f']),
-  git: new Set(['-c']),
+  git: new Set(['-c', '--config-env', '--exec-path']),
 };
 
 const PATH_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
@@ -33,6 +34,14 @@ const UNSAFE_SHELL_METACHARS = /[;&|><`\n\r]/;
 const MAX_OUTPUT_BYTES = 1_000_000;
 const MAX_FIND_DEPTH = 8;
 const MAX_SEARCH_MATCHES = 500;
+const GIT_ALLOWED_SUBCOMMANDS = new Set([
+  'status', 'diff', 'log', 'show', 'rev-parse', 'branch', 'checkout',
+  'switch', 'add', 'reset', 'restore', 'commit', 'push', 'pull', 'fetch',
+  'merge', 'rebase', 'tag', 'remote', 'stash', 'cherry-pick'
+]);
+const GIT_PATH_BEARING_FLAGS = new Set([
+  '-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--exec-path'
+]);
 
 export class BashTool {
   private workspaceRoot: string = process.cwd();
@@ -41,8 +50,7 @@ export class BashTool {
   private confirmationService = ConfirmationService.getInstance();
 
   private isWithinWorkspace(root: string, candidate: string): boolean {
-    const relative = path.relative(root, candidate);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    return isWithinRoot(root, candidate);
   }
 
   constructor() {
@@ -234,6 +242,35 @@ export class BashTool {
   }
 
   private async validateGitArgs(args: string[]): Promise<ToolResult> {
+    let firstNonFlag: string | undefined;
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (!arg) {
+        continue;
+      }
+      const normalized = arg.split('=')[0];
+      const flagConsumesNext = GIT_PATH_BEARING_FLAGS.has(normalized)
+        && !arg.includes('=')
+        && !(arg.startsWith('-C') && arg.length > 2);
+
+      if (flagConsumesNext) {
+        index += 1;
+        continue;
+      }
+
+      if (!arg.startsWith('-')) {
+        firstNonFlag = arg;
+        break;
+      }
+    }
+
+    if (!firstNonFlag || !GIT_ALLOWED_SUBCOMMANDS.has(firstNonFlag)) {
+      return {
+        success: false,
+        error: `Git subcommand is not allowed by policy: ${firstNonFlag ?? 'none'}`,
+      };
+    }
+
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index];
       if (!arg) {
@@ -254,17 +291,19 @@ export class BashTool {
         break;
       }
 
-      if (arg === "-C" || arg.startsWith("-C")) {
-        const inlineValue = arg.length > 2 ? arg.slice(2) : undefined;
-        const value = inlineValue || args[index + 1];
+      const [normalized] = arg.split('=');
+      const explicitInline = arg.includes('=') ? arg.split('=').slice(1).join('=') : undefined;
+      if (GIT_PATH_BEARING_FLAGS.has(normalized) || arg === '-C' || arg.startsWith('-C')) {
+        const inlineValue = explicitInline ?? (arg.startsWith('-C') && arg.length > 2 ? arg.slice(2) : undefined);
+        const value = inlineValue ?? args[index + 1];
         if (!value) {
-          return { success: false, error: "Missing value for path-bearing flag -C" };
+          return { success: false, error: `Missing value for path-bearing flag ${normalized}` };
         }
         const pathValidation = await this.validatePathArg(value);
         if (!pathValidation.success) {
           return pathValidation;
         }
-        if (!inlineValue) {
+        if (!inlineValue && !arg.includes('=')) {
           index += 1;
         }
       }

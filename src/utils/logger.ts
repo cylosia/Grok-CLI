@@ -30,7 +30,7 @@ function sanitize(value: unknown, depth = 0): unknown {
   return value;
 }
 
-function safeJsonStringify(value: unknown): string {
+export function safeJsonStringify(value: unknown): string {
   const seen = new WeakSet<object>();
   return JSON.stringify(value, (_key, currentValue) => {
     if (typeof currentValue === "bigint") {
