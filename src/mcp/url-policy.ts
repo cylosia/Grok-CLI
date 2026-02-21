@@ -46,6 +46,22 @@ async function resolveHostAddresses(host: string): Promise<string[]> {
   }
 }
 
+async function resolveStableHostAddresses(host: string): Promise<string[]> {
+  const first = await resolveHostAddresses(host);
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(":")) {
+    return first;
+  }
+
+  const second = await resolveHostAddresses(host);
+  const normalize = (values: string[]) => [...new Set(values)].sort();
+  const a = normalize(first);
+  const b = normalize(second);
+  if (a.length !== b.length || a.some((value, index) => value !== b[index])) {
+    throw new Error(`DNS resolution changed during MCP URL validation for host ${host}; refusing to connect`);
+  }
+  return a;
+}
+
 export async function validateMcpUrl(rawUrl: string, allowLocalHttp = false): Promise<string> {
   const normalized = rawUrl.trim();
 
@@ -71,7 +87,7 @@ export async function validateMcpUrl(rawUrl: string, allowLocalHttp = false): Pr
     throw new Error(`Invalid MCP URL host: ${rawUrl}`);
   }
 
-  const resolvedAddresses = await resolveHostAddresses(host);
+  const resolvedAddresses = await resolveStableHostAddresses(host);
   const hostIsPrivate = isPrivateHost(host) || resolvedAddresses.some((address) => isPrivateHost(address));
 
   if (scheme === "http") {

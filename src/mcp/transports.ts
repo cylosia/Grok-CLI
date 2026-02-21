@@ -1,6 +1,5 @@
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import { validateMcpUrl } from "./url-policy.js";
 
@@ -25,7 +24,6 @@ export interface MCPTransport {
 
 export class StdioTransport implements MCPTransport {
   private transport: StdioClientTransport | null = null;
-  private process: ChildProcess | null = null;
 
   constructor(private config: TransportConfig) {
     if (!config.command) {
@@ -73,10 +71,6 @@ export class StdioTransport implements MCPTransport {
       this.transport = null;
     }
 
-    if (this.process) {
-      this.process.kill();
-      this.process = null;
-    }
   }
 
   getType(): TransportType {

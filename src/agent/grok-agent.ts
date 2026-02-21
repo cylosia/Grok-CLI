@@ -89,6 +89,26 @@ export class GrokAgent extends EventEmitter {
   private processingQueue: Promise<void> = Promise.resolve();
   private isProcessing = false;
 
+  private safeSerializeToolData(data: unknown): string {
+    const seen = new WeakSet<object>();
+    try {
+      return JSON.stringify(data ?? {}, (_key, value) => {
+        if (typeof value === "bigint") {
+          return value.toString();
+        }
+        if (value && typeof value === "object") {
+          if (seen.has(value)) {
+            return "[CIRCULAR]";
+          }
+          seen.add(value);
+        }
+        return value;
+      });
+    } catch {
+      return "[unserializable tool payload]";
+    }
+  }
+
   private trimBuffers(): void {
     if (this.chatHistory.length > MAX_CHAT_HISTORY_ENTRIES) {
       this.chatHistory = this.chatHistory.slice(-MAX_CHAT_HISTORY_ENTRIES);
@@ -230,7 +250,7 @@ export class GrokAgent extends EventEmitter {
             role: "tool",
             tool_call_id: toolCall.id,
             content: result.success
-              ? result.output || JSON.stringify(result.data || {})
+              ? result.output || this.safeSerializeToolData(result.data)
               : result.error || "Tool failed",
           });
           this.trimBuffers();
@@ -331,7 +351,7 @@ export class GrokAgent extends EventEmitter {
             role: "tool",
             tool_call_id: toolCall.id,
             content: toolResult.success
-              ? toolResult.output || JSON.stringify(toolResult.data || {})
+              ? toolResult.output || this.safeSerializeToolData(toolResult.data)
               : toolResult.error || "Tool failed",
           });
           this.chatHistory.push({

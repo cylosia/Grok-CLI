@@ -39,6 +39,7 @@ export class MCPManager {
   private failedInitializationCooldownUntil = new Map<MCPServerName, number>();
   private static readonly TOOL_CALL_TIMEOUT_MS = 30_000;
   private static readonly INIT_FAILURE_COOLDOWN_MS = 60_000;
+  private static readonly TEARDOWN_TIMEOUT_MS = 5_000;
 
   private getServerFingerprint(config: MCPServerConfig): string {
     const payload = {
@@ -190,6 +191,15 @@ export class MCPManager {
     this.servers.delete(name);
   }
 
+  private async teardownServerWithTimeout(name: MCPServerName): Promise<void> {
+    await Promise.race([
+      this.teardownServer(name),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, MCPManager.TEARDOWN_TIMEOUT_MS);
+      }),
+    ]);
+  }
+
   async callTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown[] }> {
     const parts = name.split("__");
     if (parts.length < 3 || parts[0] !== "mcp") {
@@ -208,16 +218,17 @@ export class MCPManager {
     }
 
     let timeoutHandle: NodeJS.Timeout | undefined;
-    let timeoutTriggered = false;
-    let teardownPromise: Promise<void> | null = null;
 
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutHandle = setTimeout(() => {
-          timeoutTriggered = true;
-          teardownPromise = this.teardownServer(serverName);
-          void teardownPromise.finally(() => {
-            reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
+          reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
+          void this.teardownServerWithTimeout(serverName).catch((teardownError) => {
+            logger.warn("mcp-server-teardown-after-timeout-failed", {
+              component: "mcp-client",
+              server: String(serverName),
+              error: teardownError instanceof Error ? teardownError.message : String(teardownError),
+            });
           });
         }, MCPManager.TOOL_CALL_TIMEOUT_MS);
       });
@@ -233,9 +244,6 @@ export class MCPManager {
         content: Array.isArray(result.content) ? result.content : [],
       };
     } catch (error) {
-      if (timeoutTriggered && teardownPromise) {
-        await teardownPromise;
-      }
       throw error;
     } finally {
       if (timeoutHandle) {
