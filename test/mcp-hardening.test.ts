@@ -19,6 +19,38 @@ test('stdio transport rejects non-allowlisted env overrides', async () => {
   );
 });
 
+test('stdio transport rejects protected env override keys explicitly', async () => {
+  const transport = createTransport({
+    type: 'stdio',
+    command: 'node',
+    args: ['-e', ''],
+    env: {
+      PATH: '/tmp',
+    },
+  });
+
+  await assert.rejects(
+    () => transport.connect(),
+    /Unsupported MCP stdio env override keys: PATH/
+  );
+});
+
+test('stdio transport rejects unknown MCP-prefixed env override keys', async () => {
+  const transport = createTransport({
+    type: 'stdio',
+    command: 'node',
+    args: ['-e', ''],
+    env: {
+      MCP_CUSTOM_UNSAFE: '1',
+    },
+  });
+
+  await assert.rejects(
+    () => transport.connect(),
+    /Unsupported MCP stdio env override keys: MCP_CUSTOM_UNSAFE/
+  );
+});
+
 test('mcp manager prunes expired timeout cooldown entries and caps map size', () => {
   const manager = new MCPManager() as unknown as {
     callSafety: {
