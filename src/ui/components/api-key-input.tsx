@@ -23,7 +23,10 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
     }
 
     if (key.return) {
-      void handleSubmit();
+      handleSubmit().catch((error: unknown) => {
+        setError(error instanceof Error ? error.message : String(error));
+        setIsSubmitting(false);
+      });
       return;
     }
 

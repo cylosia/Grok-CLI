@@ -7,7 +7,7 @@ import { logger } from "./utils/logger.js";
 
 const SHUTDOWN_TIMEOUT_MS = 5_000;
 
-void (async () => {
+async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
   if (args.includes('--help') || args.includes('-h')) {
@@ -66,10 +66,24 @@ Full TUI launches automatically when TTY is detected.
   };
 
   process.on("SIGINT", () => {
-    void shutdown("SIGINT");
+    shutdown("SIGINT").catch((error: unknown) => {
+      logger.error("shutdown-handler-failed", {
+        component: "index",
+        signal: "SIGINT",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      process.exit(1);
+    });
   });
   process.on("SIGTERM", () => {
-    void shutdown("SIGTERM");
+    shutdown("SIGTERM").catch((error: unknown) => {
+      logger.error("shutdown-handler-failed", {
+        component: "index",
+        signal: "SIGTERM",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      process.exit(1);
+    });
   });
 
   process.on("unhandledRejection", (reason) => {
@@ -78,9 +92,16 @@ Full TUI launches automatically when TTY is detected.
       component: "index",
       error: error ? error.message : String(reason),
       errorName: error?.name,
-      errorStack: error?.stack,
+      ...(process.env.GROK_DEBUG_STACKS === "true" ? { errorStack: error?.stack } : {}),
     });
-    void shutdown("UNHANDLED_REJECTION", 1);
+    shutdown("UNHANDLED_REJECTION", 1).catch((shutdownError: unknown) => {
+      logger.error("shutdown-handler-failed", {
+        component: "index",
+        signal: "UNHANDLED_REJECTION",
+        error: shutdownError instanceof Error ? shutdownError.message : String(shutdownError),
+      });
+      process.exit(1);
+    });
   });
 
   process.on("uncaughtException", (error) => {
@@ -88,9 +109,16 @@ Full TUI launches automatically when TTY is detected.
       component: "index",
       error: error instanceof Error ? error.message : String(error),
       errorName: error instanceof Error ? error.name : undefined,
-      errorStack: error instanceof Error ? error.stack : undefined,
+      ...(process.env.GROK_DEBUG_STACKS === "true" ? { errorStack: error instanceof Error ? error.stack : undefined } : {}),
     });
-    void shutdown("UNCAUGHT_EXCEPTION", 1);
+    shutdown("UNCAUGHT_EXCEPTION", 1).catch((shutdownError: unknown) => {
+      logger.error("shutdown-handler-failed", {
+        component: "index",
+        signal: "UNCAUGHT_EXCEPTION",
+        error: shutdownError instanceof Error ? shutdownError.message : String(shutdownError),
+      });
+      process.exit(1);
+    });
   });
 
   // CLI Mode (MINGW64 / non-TTY safe)
@@ -120,4 +148,13 @@ Full TUI launches automatically when TTY is detected.
   const { waitUntilExit } = render(<App />);
   await waitUntilExit();
   await shutdown("TUI_COMPLETE", 0);
-})();
+}
+
+main().catch((error: unknown) => {
+  logger.error("startup-failed", {
+    component: "index",
+    error: error instanceof Error ? error.message : String(error),
+    ...(process.env.GROK_DEBUG_STACKS === "true" && error instanceof Error ? { errorStack: error.stack } : {}),
+  });
+  process.exit(1);
+});

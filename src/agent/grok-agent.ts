@@ -79,7 +79,10 @@ export class GrokAgent extends EventEmitter {
     this.supervisor = enableSupervisor ? new AgentSupervisor(apiKey) : null;
 
     this.setupSystemPrompt();
-    void this.initializeMCP();
+    this.initializeMCP().catch((error: unknown) => {
+      this.mcpInitialized = false;
+      this.mcpInitError = error instanceof Error ? error.message : String(error);
+    });
   }
 
   private setupSystemPrompt(): void {

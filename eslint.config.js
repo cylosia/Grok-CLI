@@ -22,7 +22,7 @@ module.exports = [
       ...tsPlugin.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'error',
-      '@typescript-eslint/no-floating-promises': ['error', { ignoreVoid: true }],
+      '@typescript-eslint/no-floating-promises': ['error', { ignoreVoid: false }],
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
       'no-eval': 'error',
       'no-implied-eval': 'error',
@@ -33,7 +33,12 @@ module.exports = [
   {
     files: ['test/**/*.ts'],
     rules: {
-      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/no-floating-promises': ['error', {
+        ignoreVoid: false,
+        allowForKnownSafeCalls: [
+          { from: 'package', package: 'node:test', name: 'test' },
+        ],
+      }],
     },
   },
 ];
