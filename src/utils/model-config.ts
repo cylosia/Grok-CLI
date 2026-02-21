@@ -42,15 +42,15 @@ export function getDefaultModels(): string[] {
 /**
  * Update the current model in project settings
  */
-export function updateCurrentModel(modelName: string): void {
+export async function updateCurrentModel(modelName: string): Promise<void> {
   const manager = getSettingsManager();
-  void manager.setCurrentModel(modelName);
+  await manager.setCurrentModel(modelName);
 }
 
 /**
  * Update the user's default model preference
  */
-export function updateDefaultModel(modelName: string): void {
+export async function updateDefaultModel(modelName: string): Promise<void> {
   const manager = getSettingsManager();
-  void manager.updateUserSetting('defaultModel', modelName);
+  await manager.updateUserSetting('defaultModel', modelName);
 }

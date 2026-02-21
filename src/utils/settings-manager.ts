@@ -213,8 +213,7 @@ export class SettingsManager {
 
       if (typeof settings.apiKey === "string" && settings.apiKey.length > 0) {
         this.sessionApiKey = settings.apiKey;
-        const { apiKey, ...sanitized } = settings;
-        void apiKey;
+        const { apiKey: _apiKey, ...sanitized } = settings;
         const merged = { ...DEFAULT_USER_SETTINGS, ...sanitized };
         writeJsonFileSyncAtomic(this.userSettingsPath, merged);
         this.userSettingsCache = merged;
@@ -242,8 +241,8 @@ export class SettingsManager {
       delete merged.apiKey;
     }
 
-    this.userSettingsCache = merged;
     await this.enqueueWrite(this.userSettingsPath, merged);
+    this.userSettingsCache = merged;
   }
 
   public getCurrentModel(): string {
@@ -318,8 +317,8 @@ export class SettingsManager {
     this.refreshProjectSettingsPath();
     const current = this.projectSettingsCache ? sanitizeProjectSettings(this.projectSettingsCache) : sanitizeProjectSettings(this.readJsonFile(this.projectSettingsPath));
     const merged = { ...DEFAULT_PROJECT_SETTINGS, ...current, ...sanitizeProjectSettings(settings) };
-    this.projectSettingsCache = merged;
     await this.enqueueWrite(this.projectSettingsPath, merged);
+    this.projectSettingsCache = merged;
   }
 
   public async updateProjectSetting<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]): Promise<void> {

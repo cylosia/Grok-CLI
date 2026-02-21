@@ -6,6 +6,7 @@ import { useEnhancedInput, Key } from "./use-enhanced-input.js";
 
 import { filterCommandSuggestions } from "../ui/components/command-suggestions.js";
 import { loadModelConfig, updateCurrentModel } from "../utils/model-config.js";
+import { logger } from "../utils/logger.js";
 
 interface UseInputHandlerProps {
   agent: GrokAgent;
@@ -158,7 +159,13 @@ export function useInputHandler({
       if (key.tab || key.return) {
         const selectedModel = availableModels[selectedModelIndex];
         agent.setModel(selectedModel.model);
-        updateCurrentModel(selectedModel.model);
+        updateCurrentModel(selectedModel.model).catch((error: unknown) => {
+          logger.warn("model-persist-failed", {
+            component: "use-input-handler",
+            model: selectedModel.model,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
         const confirmEntry: ChatEntry = {
           type: "assistant",
           content: `✓ Switched to model: ${selectedModel.model}`,
@@ -325,7 +332,13 @@ Examples:
 
       if (modelNames.includes(modelArg)) {
         agent.setModel(modelArg);
-        updateCurrentModel(modelArg); // Update project current model
+        updateCurrentModel(modelArg).catch((error: unknown) => {
+          logger.warn("model-persist-failed", {
+            component: "use-input-handler",
+            model: modelArg,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }); // Update project current model
         const confirmEntry: ChatEntry = {
           type: "assistant",
           content: `✓ Switched to model: ${modelArg}`,

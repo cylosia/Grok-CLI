@@ -21,18 +21,20 @@ test('stdio transport rejects non-allowlisted env overrides', async () => {
 
 test('mcp manager prunes expired timeout cooldown entries and caps map size', () => {
   const manager = new MCPManager() as unknown as {
-    timedOutCallCooldownUntil: Map<string, number>;
-    pruneTimedOutCooldownKeys: () => void;
+    callSafety: {
+      timedOutCallCooldownUntil: Map<string, number>;
+      assertCallAllowed: (callKey: string, name: string) => void;
+    };
   };
 
   const now = Date.now();
   for (let i = 0; i < 2105; i += 1) {
-    manager.timedOutCallCooldownUntil.set(`k-${i}`, now + 60_000);
+    manager.callSafety.timedOutCallCooldownUntil.set(`k-${i}`, now + 60_000);
   }
-  manager.timedOutCallCooldownUntil.set('expired', now - 1);
+  manager.callSafety.timedOutCallCooldownUntil.set('expired', now - 1);
 
-  manager.pruneTimedOutCooldownKeys();
+  manager.callSafety.assertCallAllowed('new-call', 'test-call');
 
-  assert.equal(manager.timedOutCallCooldownUntil.has('expired'), false);
-  assert.ok(manager.timedOutCallCooldownUntil.size <= 2000);
+  assert.equal(manager.callSafety.timedOutCallCooldownUntil.has('expired'), false);
+  assert.ok(manager.callSafety.timedOutCallCooldownUntil.size <= 2000);
 });

@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Box, Text } from "ink";
 import { getMCPManager } from "../../grok/tools.js";
+import { logger } from "../../utils/logger.js";
 
 export function MCPStatus() {
   const [connectedServers, setConnectedServers] = useState<string[]>([]);
+  const lastWarnAtRef = useRef(0);
 
   useEffect(() => {
     const updateStatus = () => {
@@ -11,8 +13,15 @@ export function MCPStatus() {
         const manager = getMCPManager();
         const servers = manager.getServers();
         setConnectedServers(servers);
-      } catch (_error) {
-        // MCP manager not initialized yet
+      } catch (error: unknown) {
+        const now = Date.now();
+        if (now - lastWarnAtRef.current >= 10_000) {
+          lastWarnAtRef.current = now;
+          logger.warn("mcp-status-refresh-failed", {
+            component: "mcp-status",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
         setConnectedServers([]);
       }
     };

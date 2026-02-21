@@ -5,6 +5,7 @@ import { createHash } from "crypto";
 import { logger } from "../utils/logger.js";
 import { MCPServerName, parseMCPServerName } from "../types/index.js";
 import { canonicalJsonStringify } from "../utils/canonical-json.js";
+import { MCPCallSafety } from "./call-safety.js";
 
 export interface MCPServerConfig {
   name: string;
@@ -46,10 +47,13 @@ export class MCPManager {
   private static readonly MAX_REMOTELY_UNCERTAIN_KEYS = 1_000;
   private static readonly MAX_TIMED_OUT_COOLDOWN_KEYS = 2_000;
   private static readonly SERVER_INIT_CONCURRENCY = 4;
-  private timedOutCallCooldownUntil = new Map<string, number>();
   private inFlightToolCalls = new Map<string, Promise<{ content: unknown[] }>>();
-  private remotelyUncertainCallKeys = new Map<string, number>();
-  private serverCallQuarantineUntil = new Map<MCPServerName, number>();
+  private readonly callSafety = new MCPCallSafety({
+    timedOutCallCooldownMs: MCPManager.TIMED_OUT_CALL_COOLDOWN_MS,
+    remotelyUncertainTtlMs: MCPManager.REMOTELY_UNCERTAIN_TTL_MS,
+    maxRemotelyUncertainKeys: MCPManager.MAX_REMOTELY_UNCERTAIN_KEYS,
+    maxTimedOutCooldownKeys: MCPManager.MAX_TIMED_OUT_COOLDOWN_KEYS,
+  });
 
   private getServerFingerprint(config: MCPServerConfig): string {
     const payload = {
@@ -248,41 +252,6 @@ export class MCPManager {
     }
   }
 
-  private assertCallNotCoolingDown(callKey: string, name: string): void {
-    this.pruneRemotelyUncertainCallKeys();
-    this.pruneTimedOutCooldownKeys();
-
-    if (this.remotelyUncertainCallKeys.has(callKey)) {
-      throw new Error(`MCP tool call was previously timed out and may have completed remotely; retry blocked for safety: ${name}`);
-    }
-
-    const until = this.timedOutCallCooldownUntil.get(callKey) ?? 0;
-    const now = Date.now();
-    if (until > now) {
-      throw new Error(`MCP tool call is cooling down after a timeout: ${name}`);
-    }
-    if (until !== 0) {
-      this.timedOutCallCooldownUntil.delete(callKey);
-    }
-  }
-
-
-  private pruneTimedOutCooldownKeys(): void {
-    const now = Date.now();
-    for (const [key, until] of this.timedOutCallCooldownUntil.entries()) {
-      if (until <= now) {
-        this.timedOutCallCooldownUntil.delete(key);
-      }
-    }
-
-    while (this.timedOutCallCooldownUntil.size > MCPManager.MAX_TIMED_OUT_COOLDOWN_KEYS) {
-      const oldest = this.timedOutCallCooldownUntil.keys().next().value;
-      if (!oldest) {
-        break;
-      }
-      this.timedOutCallCooldownUntil.delete(oldest);
-    }
-  }
 
   private isLikelyMutatingTool(name: string): boolean {
     return /(create|update|delete|remove|write|set|insert|upsert|transfer|send|commit|charge|pay|withdraw|deposit)/i.test(name);
@@ -306,45 +275,6 @@ export class MCPManager {
       idempotencyKey: callKey,
     };
   }
-  private assertServerNotQuarantined(serverName: MCPServerName, name: string): void {
-    const now = Date.now();
-    const quarantineUntil = this.serverCallQuarantineUntil.get(serverName) ?? 0;
-    if (quarantineUntil > now) {
-      throw new Error(`MCP server is temporarily quarantined after uncertain timeout state; call blocked: ${name}`);
-    }
-
-    if (quarantineUntil !== 0) {
-      this.serverCallQuarantineUntil.delete(serverName);
-    }
-  }
-
-  private markRemotelyUncertain(callKey: string): void {
-    this.pruneRemotelyUncertainCallKeys();
-    if (this.remotelyUncertainCallKeys.size >= MCPManager.MAX_REMOTELY_UNCERTAIN_KEYS) {
-      let oldestKey: string | undefined;
-      let oldestExpiry = Number.POSITIVE_INFINITY;
-      for (const [key, expiry] of this.remotelyUncertainCallKeys.entries()) {
-        if (expiry < oldestExpiry) {
-          oldestExpiry = expiry;
-          oldestKey = key;
-        }
-      }
-      if (oldestKey) {
-        this.remotelyUncertainCallKeys.delete(oldestKey);
-      }
-    }
-
-    this.remotelyUncertainCallKeys.set(callKey, Date.now() + MCPManager.REMOTELY_UNCERTAIN_TTL_MS);
-  }
-
-  private pruneRemotelyUncertainCallKeys(): void {
-    const now = Date.now();
-    for (const [key, expiry] of this.remotelyUncertainCallKeys.entries()) {
-      if (expiry <= now) {
-        this.remotelyUncertainCallKeys.delete(key);
-      }
-    }
-  }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown[] }> {
     const parts = name.split("__");
@@ -362,8 +292,8 @@ export class MCPManager {
     if (existingCall) {
       return this.awaitInFlightCall(name, existingCall);
     }
-    this.assertCallNotCoolingDown(callKey, name);
-    this.assertServerNotQuarantined(serverName, name);
+    this.callSafety.assertCallAllowed(callKey, name);
+    this.callSafety.assertServerAllowed(serverName, name);
     const server = this.servers.get(serverName);
 
     if (!server) {
@@ -377,21 +307,20 @@ export class MCPManager {
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutHandle = setTimeout(() => {
           const timeoutError = new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`);
-          this.timedOutCallCooldownUntil.set(callKey, Date.now() + MCPManager.TIMED_OUT_CALL_COOLDOWN_MS);
-          this.pruneTimedOutCooldownKeys();
-          this.markRemotelyUncertain(callKey);
-          this.serverCallQuarantineUntil.set(serverName, Date.now() + MCPManager.TIMED_OUT_CALL_COOLDOWN_MS);
+          this.callSafety.registerTimeout(callKey, serverName);
           controller.abort(timeoutError);
-          void this.teardownServerWithTimeout(serverName).then(() => {
-            reject(timeoutError);
-          }).catch((teardownError) => {
-            logger.warn("mcp-server-teardown-after-timeout-failed", {
-              component: "mcp-client",
-              server: String(serverName),
-              error: teardownError instanceof Error ? teardownError.message : String(teardownError),
+          this.teardownServerWithTimeout(serverName)
+            .then(() => {
+              reject(timeoutError);
+            })
+            .catch((teardownError) => {
+              logger.warn("mcp-server-teardown-after-timeout-failed", {
+                component: "mcp-client",
+                server: String(serverName),
+                error: teardownError instanceof Error ? teardownError.message : String(teardownError),
+              });
+              reject(timeoutError);
             });
-            reject(timeoutError);
-          });
         }, MCPManager.TOOL_CALL_TIMEOUT_MS);
       });
 
@@ -414,8 +343,7 @@ export class MCPManager {
       this.inFlightToolCalls.set(callKey, normalizedCallPromise);
 
       const result = await Promise.race([normalizedCallPromise, timeoutPromise]);
-      this.remotelyUncertainCallKeys.delete(callKey);
-      this.serverCallQuarantineUntil.delete(serverName);
+      this.callSafety.clearSuccess(callKey, serverName);
       return result;
     } catch (error) {
       throw error;
