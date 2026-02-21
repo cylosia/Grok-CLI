@@ -25,7 +25,16 @@ interface PendingConfirmation {
   promise: Promise<ConfirmationResult>;
 }
 
-export class ConfirmationService extends EventEmitter {
+
+export interface ConfirmationServiceLike {
+  requestConfirmation(options: ConfirmationOptions, operationType?: "file" | "bash"): Promise<ConfirmationResult>;
+  confirmOperation(confirmed: boolean, dontAskAgain?: boolean, requestId?: ConfirmationRequestId): void;
+  rejectOperation(feedback?: string, requestId?: ConfirmationRequestId): void;
+  isPending(): boolean;
+  resetSession(): void;
+}
+
+export class ConfirmationService extends EventEmitter implements ConfirmationServiceLike {
   private static instance: ConfirmationService;
   private static readonly MAX_PENDING_CONFIRMATIONS = 100;
   private static readonly REQUEST_TIMEOUT_MS = 60_000;
@@ -180,4 +189,8 @@ export class ConfirmationService extends EventEmitter {
   ) {
     this.sessionFlags[flagType] = value;
   }
+}
+
+export function createConfirmationService(): ConfirmationServiceLike {
+  return new ConfirmationService();
 }

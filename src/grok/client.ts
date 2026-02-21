@@ -126,8 +126,12 @@ function parseToolCalls(toolCalls: unknown): GrokToolCall[] {
 
 export class GrokClient {
   private static readonly REQUEST_TIMEOUT_MS = 30_000;
+  private static readonly CIRCUIT_BREAKER_THRESHOLD = 5;
+  private static readonly CIRCUIT_BREAKER_COOLDOWN_MS = 30_000;
   private client: OpenAI;
   private currentModel = "grok-420";
+  private consecutiveFailures = 0;
+  private circuitOpenUntil = 0;
 
   constructor(apiKey: string, model?: string, baseURL?: string) {
     this.client = new OpenAI({
@@ -245,17 +249,25 @@ export class GrokClient {
   }
 
   private async withRetry<T>(operation: () => Promise<T>, maxAttempts = 3, signal?: AbortSignal): Promise<T> {
+    if (this.circuitOpenUntil > Date.now()) {
+      throw new Error("Upstream circuit breaker is open; refusing request");
+    }
+
     let attempt = 0;
     let lastError: unknown;
 
     while (attempt < maxAttempts) {
       try {
-        return await operation();
+        const result = await operation();
+        this.consecutiveFailures = 0;
+        this.circuitOpenUntil = 0;
+        return result;
       } catch (error) {
         lastError = error;
         attempt += 1;
 
         if (attempt >= maxAttempts || !this.isRetryable(error)) {
+          this.recordFailure();
           throw error;
         }
 
@@ -264,7 +276,15 @@ export class GrokClient {
       }
     }
 
+    this.recordFailure();
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  private recordFailure(): void {
+    this.consecutiveFailures += 1;
+    if (this.consecutiveFailures >= GrokClient.CIRCUIT_BREAKER_THRESHOLD) {
+      this.circuitOpenUntil = Date.now() + GrokClient.CIRCUIT_BREAKER_COOLDOWN_MS;
+    }
   }
 
   private abortableSleep(delayMs: number, signal?: AbortSignal): Promise<void> {
@@ -294,6 +314,11 @@ export class GrokClient {
   private isRetryable(error: unknown): boolean {
     if (!(error instanceof Error)) return false;
     const status = (error as { status?: number }).status;
-    return status === 429 || (typeof status === 'number' && status >= 500);
+    if (status === 429 || (typeof status === 'number' && status >= 500)) {
+      return true;
+    }
+
+    const code = (error as { code?: string }).code;
+    return code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ENOTFOUND' || code === 'ECONNREFUSED' || code === 'EAI_AGAIN';
   }
 }

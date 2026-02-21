@@ -1,6 +1,3 @@
-declare namespace NodeJS {
-  interface Process {
-    on(event: string | symbol, listener: (...args: unknown[]) => void): this;
-    once(event: string | symbol, listener: (...args: unknown[]) => void): this;
-  }
-}
+// Intentionally left minimal: avoid broad Process.on()/once() declaration merging
+// that weakens Node.js event typing across the codebase.
+export {};
