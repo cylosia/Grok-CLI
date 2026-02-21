@@ -18,6 +18,26 @@ import { AgentSupervisor, TaskResult } from "./supervisor.js";
 
 
 const MAX_TOOL_ARGS_BYTES = 100_000;
+const MAX_CHAT_HISTORY_ENTRIES = 500;
+const MAX_MESSAGE_ENTRIES = 500;
+
+function isTodoItem(value: unknown): value is { id: string; content: string; status: "pending" | "in_progress" | "completed"; priority: "high" | "medium" | "low" } {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === "string"
+    && typeof record.content === "string"
+    && (record.status === "pending" || record.status === "in_progress" || record.status === "completed")
+    && (record.priority === "high" || record.priority === "medium" || record.priority === "low");
+}
+
+function isTodoUpdate(value: unknown): value is { id: string; status?: "pending" | "in_progress" | "completed"; content?: string; priority?: "high" | "medium" | "low" } {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === "string"
+    && (record.status === undefined || record.status === "pending" || record.status === "in_progress" || record.status === "completed")
+    && (record.content === undefined || typeof record.content === "string")
+    && (record.priority === undefined || record.priority === "high" || record.priority === "medium" || record.priority === "low");
+}
 
 function parseToolArgs(argsRaw: string): Record<string, unknown> {
   if (argsRaw.length > MAX_TOOL_ARGS_BYTES) {
@@ -68,6 +88,17 @@ export class GrokAgent extends EventEmitter {
   private supervisor: AgentSupervisor | null;
   private processingQueue: Promise<void> = Promise.resolve();
   private isProcessing = false;
+
+  private trimBuffers(): void {
+    if (this.chatHistory.length > MAX_CHAT_HISTORY_ENTRIES) {
+      this.chatHistory = this.chatHistory.slice(-MAX_CHAT_HISTORY_ENTRIES);
+    }
+    if (this.messages.length > MAX_MESSAGE_ENTRIES) {
+      const systemMessage = this.messages[0];
+      const tail = this.messages.slice(-(MAX_MESSAGE_ENTRIES - 1));
+      this.messages = systemMessage ? [systemMessage, ...tail] : tail;
+    }
+  }
 
   constructor(
     apiKey: string,
@@ -154,8 +185,10 @@ export class GrokAgent extends EventEmitter {
     };
 
     this.chatHistory.push(userEntry);
+    this.trimBuffers();
     entries.push(userEntry);
     this.messages.push({ role: "user", content: message });
+    this.trimBuffers();
 
     this.abortController = new AbortController();
     const tools = await getAllGrokTools();
@@ -168,6 +201,7 @@ export class GrokAgent extends EventEmitter {
       });
 
       this.messages.push(assistantMessage);
+      this.trimBuffers();
 
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
         const toolCallEntry: ChatEntry = {
@@ -190,6 +224,7 @@ export class GrokAgent extends EventEmitter {
           };
           entries.push(toolResultEntry);
           this.chatHistory.push(toolResultEntry);
+          this.trimBuffers();
 
           this.messages.push({
             role: "tool",
@@ -198,6 +233,7 @@ export class GrokAgent extends EventEmitter {
               ? result.output || JSON.stringify(result.data || {})
               : result.error || "Tool failed",
           });
+          this.trimBuffers();
         }
 
         toolRounds += 1;
@@ -213,6 +249,7 @@ export class GrokAgent extends EventEmitter {
 
       entries.push(assistantEntry);
       this.chatHistory.push(assistantEntry);
+      this.trimBuffers();
       return entries;
     }
 
@@ -222,6 +259,7 @@ export class GrokAgent extends EventEmitter {
       timestamp: new Date(),
     };
     this.chatHistory.push(failEntry);
+    this.trimBuffers();
     entries.push(failEntry);
     return entries;
     });
@@ -239,37 +277,77 @@ export class GrokAgent extends EventEmitter {
     };
     this.chatHistory.push(userEntry);
     this.messages.push({ role: "user", content: message });
+    this.trimBuffers();
 
     const totalTokens = this.tokenCounter.countTokens(message);
     yield { type: "token_count", tokenCount: totalTokens };
 
     this.abortController = new AbortController();
     const tools: GrokTool[] = await getAllGrokTools();
-    const assistantParts: string[] = [];
+    let toolRounds = 0;
 
     try {
-      for await (const chunk of this.grokClient.chatStream(this.messages, {
-        tools,
-        signal: this.abortController.signal,
-      })) {
-        if (chunk.content) {
-          assistantParts.push(chunk.content);
-          yield { type: "content", content: chunk.content };
+      while (toolRounds < this.maxToolRounds) {
+        const assistantParts: string[] = [];
+        let latestToolCalls: GrokToolCall[] = [];
+
+        for await (const chunk of this.grokClient.chatStream(this.messages, {
+          tools,
+          signal: this.abortController.signal,
+        })) {
+          if (chunk.content) {
+            assistantParts.push(chunk.content);
+            yield { type: "content", content: chunk.content };
+          }
+
+          if (chunk.toolCalls && chunk.toolCalls.length > 0) {
+            latestToolCalls = chunk.toolCalls;
+            yield { type: "tool_calls", toolCalls: chunk.toolCalls };
+          }
         }
 
-        if (chunk.toolCalls && chunk.toolCalls.length > 0) {
-          yield { type: "tool_calls", toolCalls: chunk.toolCalls };
+        const assistantContent = assistantParts.join("");
+        this.messages.push({
+          role: "assistant",
+          content: assistantContent,
+          ...(latestToolCalls.length > 0 ? { tool_calls: latestToolCalls } : {}),
+        });
+        this.chatHistory.push({
+          type: "assistant",
+          content: assistantContent,
+          timestamp: new Date(),
+          ...(latestToolCalls.length > 0 ? { toolCalls: latestToolCalls } : {}),
+        });
+        this.trimBuffers();
+
+        if (latestToolCalls.length === 0) {
+          yield { type: "done" };
+          return;
         }
+
+        for (const toolCall of latestToolCalls) {
+          const toolResult = await this.executeTool(toolCall);
+          this.messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: toolResult.success
+              ? toolResult.output || JSON.stringify(toolResult.data || {})
+              : toolResult.error || "Tool failed",
+          });
+          this.chatHistory.push({
+            type: "tool_result",
+            content: toolResult.success ? toolResult.output || "Success" : toolResult.error || "Tool failed",
+            timestamp: new Date(),
+            toolCall,
+            toolResult,
+          });
+          this.trimBuffers();
+          yield { type: "tool_result", toolCall, toolResult };
+        }
+
+        toolRounds += 1;
       }
-
-      const assistantContent = assistantParts.join("");
-      this.messages.push({ role: "assistant", content: assistantContent });
-      this.chatHistory.push({
-        type: "assistant",
-        content: assistantContent,
-        timestamp: new Date(),
-      });
-
+      yield { type: "content", content: "Stopped after reaching maximum tool rounds." };
       yield { type: "done" };
     } finally {
       this.isProcessing = false;
@@ -313,9 +391,15 @@ export class GrokAgent extends EventEmitter {
           });
           }
         case "create_todo_list":
-          return this.todoTool.createTodoList((args.todos as never[]) || []);
+          if (!Array.isArray(args.todos) || !args.todos.every((todo) => isTodoItem(todo))) {
+            return { success: false, error: "Invalid todos payload" };
+          }
+          return this.todoTool.createTodoList(args.todos);
         case "update_todo_list":
-          return this.todoTool.updateTodoList((args.updates as never[]) || []);
+          if (!Array.isArray(args.updates) || !args.updates.every((update) => isTodoUpdate(update))) {
+            return { success: false, error: "Invalid updates payload" };
+          }
+          return this.todoTool.updateTodoList(args.updates);
         case "view_todo_list":
           return this.todoTool.viewTodoList();
         case "request_confirmation":

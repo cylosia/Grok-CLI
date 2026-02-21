@@ -20,6 +20,10 @@ export interface TodoUpdate {
 const TODO_STATUSES: ReadonlyArray<TodoStatus> = ['pending', 'in_progress', 'completed'];
 const TODO_PRIORITIES: ReadonlyArray<TodoPriority> = ['high', 'medium', 'low'];
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled todo status: ${String(value)}`);
+}
+
 export class TodoTool {
   private todos: TodoItem[] = [];
 
@@ -36,6 +40,8 @@ export class TodoTool {
           return '◐';
         case 'pending':
           return '○';
+        default:
+          return assertNever(status);
       }
     };
 
@@ -47,6 +53,8 @@ export class TodoTool {
           return '\x1b[36m';
         case 'pending':
           return '\x1b[37m';
+        default:
+          return assertNever(status);
       }
     };
 

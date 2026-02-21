@@ -242,6 +242,12 @@ const renderDiffContent = (
             prefixSymbol = ' ';
             lastLineNumber = line.newLine ?? null;
             break;
+          case 'hunk':
+          case 'other':
+            gutterNumStr = '';
+            dim = true;
+            prefixSymbol = ' ';
+            break;
           default:
             return acc;
         }

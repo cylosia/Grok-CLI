@@ -85,8 +85,8 @@ export function createMCPCommand(): Command {
           const manager = getMCPManager();
           await manager.addServer(config);
 
-          addMCPServer(config);
-          setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
+          await addMCPServer(config);
+          await setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
           console.log(chalk.green(`✓ Added predefined MCP server: ${name}`));
           console.log(chalk.green(`✓ Connected to MCP server: ${name}`));
           
@@ -147,8 +147,8 @@ export function createMCPCommand(): Command {
         const manager = getMCPManager();
         await manager.addServer(config);
 
-        addMCPServer(config);
-        setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
+        await addMCPServer(config);
+        await setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
         console.log(chalk.green(`✓ Added MCP server: ${name}`));
         console.log(chalk.green(`✓ Connected to MCP server: ${name}`));
         
@@ -185,8 +185,8 @@ export function createMCPCommand(): Command {
         const manager = getMCPManager();
         await manager.addServer(serverConfig);
 
-        addMCPServer(serverConfig);
-        setTrustedMCPServerFingerprint(name, getServerFingerprint(serverConfig));
+        await addMCPServer(serverConfig);
+        await setTrustedMCPServerFingerprint(name, getServerFingerprint(serverConfig));
         console.log(chalk.green(`✓ Added MCP server: ${name}`));
         console.log(chalk.green(`✓ Connected to MCP server: ${name}`));
         
@@ -207,8 +207,8 @@ export function createMCPCommand(): Command {
       try {
         const manager = getMCPManager();
         await manager.removeServer(name);
-        removeMCPServer(name);
-        removeTrustedMCPServerFingerprint(name);
+        await removeMCPServer(name);
+        await removeTrustedMCPServerFingerprint(name);
         console.log(chalk.green(`✓ Removed MCP server: ${name}`));
       } catch (error: unknown) {
         console.error(chalk.red(`Error removing MCP server: ${error instanceof Error ? error.message : String(error)}`));

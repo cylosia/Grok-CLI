@@ -5,7 +5,7 @@ import { loadRuntimeConfig } from "./utils/runtime-config.js";
 import { getMCPManager } from "./grok/tools.js";
 import { logger } from "./utils/logger.js";
 
-(async () => {
+void (async () => {
   const args = process.argv.slice(2);
 
   if (args.includes('--help') || args.includes('-h')) {

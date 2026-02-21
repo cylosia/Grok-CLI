@@ -1,5 +1,7 @@
 import fs from "fs-extra";
 import * as path from "path";
+import { constants as fsConstants } from "fs";
+import { open as openFile } from "fs/promises";
 import { ToolResult, EditorCommand } from "../types/index.js";
 import { ConfirmationService } from "../utils/confirmation-service.js";
 import { generateUnifiedDiff } from "./diff-utils.js";
@@ -8,6 +10,32 @@ export class TextEditorTool {
   private editHistory: EditorCommand[] = [];
   private confirmationService = ConfirmationService.getInstance();
   private workspaceRoot = process.cwd();
+
+
+  private async ensureNotSymlink(targetPath: string): Promise<void> {
+    const stats = await fs.lstat(targetPath);
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Refusing to write through symlink: ${targetPath}`);
+    }
+  }
+
+  private async writeFileNoFollow(targetPath: string, content: string): Promise<void> {
+    const handle = await openFile(targetPath, fsConstants.O_WRONLY | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW);
+    try {
+      await handle.writeFile(content, { encoding: "utf-8" });
+    } finally {
+      await handle.close();
+    }
+  }
+
+  private async createFileNoFollow(targetPath: string, content: string): Promise<void> {
+    const handle = await openFile(targetPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW, 0o600);
+    try {
+      await handle.writeFile(content, { encoding: "utf-8" });
+    } finally {
+      await handle.close();
+    }
+  }
 
   async view(
     filePath: string,
@@ -139,7 +167,8 @@ export class TextEditorTool {
       const newContent = replaceAll
         ? content.split(oldStr).join(newStr)
         : content.replace(oldStr, newStr);
-      await fs.writeFile(resolvedPath, newContent, "utf-8");
+      await this.ensureNotSymlink(resolvedPath);
+      await this.writeFileNoFollow(resolvedPath, newContent);
 
       this.editHistory.push({
         command: "str_replace",
@@ -204,7 +233,7 @@ export class TextEditorTool {
 
       const dir = path.dirname(resolvedPath);
       await fs.ensureDir(dir);
-      await fs.writeFile(resolvedPath, content, "utf-8");
+      await this.createFileNoFollow(resolvedPath, content);
 
       this.editHistory.push({
         command: "create",
@@ -293,7 +322,8 @@ export class TextEditorTool {
       lines.splice(startLine - 1, endLine - startLine + 1, ...replacementLines);
       const newFileContent = lines.join("\n");
 
-      await fs.writeFile(resolvedPath, newFileContent, "utf-8");
+      await this.ensureNotSymlink(resolvedPath);
+      await this.writeFileNoFollow(resolvedPath, newFileContent);
 
       this.editHistory.push({
         command: "str_replace",
@@ -369,7 +399,8 @@ export class TextEditorTool {
       lines.splice(insertLine - 1, 0, content);
       const newContent = lines.join("\n");
 
-      await fs.writeFile(resolvedPath, newContent, "utf-8");
+      await this.ensureNotSymlink(resolvedPath);
+      await this.writeFileNoFollow(resolvedPath, newContent);
 
       this.editHistory.push({
         command: "insert",
@@ -413,11 +444,13 @@ export class TextEditorTool {
           if (lastEdit.path) {
             const safePath = await this.resolveSafePath(lastEdit.path);
             if (typeof lastEdit.previous_content === "string") {
-              await fs.writeFile(safePath, lastEdit.previous_content, "utf-8");
+              await this.ensureNotSymlink(safePath);
+              await this.writeFileNoFollow(safePath, lastEdit.previous_content);
             } else if (lastEdit.old_str && lastEdit.new_str) {
               const content = await fs.readFile(safePath, "utf-8");
               const revertedContent = content.replace(lastEdit.new_str, lastEdit.old_str);
-              await fs.writeFile(safePath, revertedContent, "utf-8");
+              await this.ensureNotSymlink(safePath);
+              await this.writeFileNoFollow(safePath, revertedContent);
             }
           }
           break;
@@ -425,6 +458,7 @@ export class TextEditorTool {
         case "create":
           if (lastEdit.path) {
             const safePath = await this.resolveSafePath(lastEdit.path);
+            await this.ensureNotSymlink(safePath);
             await fs.remove(safePath);
           }
           break;
@@ -433,14 +467,19 @@ export class TextEditorTool {
           if (lastEdit.path) {
             const safePath = await this.resolveSafePath(lastEdit.path);
             if (typeof lastEdit.previous_content === "string") {
-              await fs.writeFile(safePath, lastEdit.previous_content, "utf-8");
+              await this.ensureNotSymlink(safePath);
+              await this.writeFileNoFollow(safePath, lastEdit.previous_content);
             } else if (lastEdit.insert_line) {
               const content = await fs.readFile(safePath, "utf-8");
               const lines = content.split("\n");
               lines.splice(lastEdit.insert_line - 1, 1);
-              await fs.writeFile(safePath, lines.join("\n"), "utf-8");
+              await this.ensureNotSymlink(safePath);
+              await this.writeFileNoFollow(safePath, lines.join("\n"));
             }
           }
+          break;
+        case "view":
+        case "undo_edit":
           break;
       }
 

@@ -83,7 +83,7 @@ export function loadMCPConfig(): MCPConfig {
   return { servers };
 }
 
-export function addMCPServer(config: MCPServerConfig): void {
+export async function addMCPServer(config: MCPServerConfig): Promise<void> {
   if (!isSafeServerKey(config.name)) {
     throw new Error(`Invalid MCP server name: ${config.name}`);
   }
@@ -92,10 +92,10 @@ export function addMCPServer(config: MCPServerConfig): void {
   const projectSettings = manager.loadProjectSettings();
   const mcpServers = Object.assign(Object.create(null), projectSettings.mcpServers || {}) as Record<string, unknown>;
   mcpServers[config.name] = config;
-  manager.updateProjectSetting('mcpServers', mcpServers);
+  await manager.updateProjectSetting('mcpServers', mcpServers);
 }
 
-export function removeMCPServer(serverName: string): void {
+export async function removeMCPServer(serverName: string): Promise<void> {
   if (!isSafeServerKey(serverName)) {
     return;
   }
@@ -104,7 +104,7 @@ export function removeMCPServer(serverName: string): void {
   const projectSettings = manager.loadProjectSettings();
   const mcpServers = Object.assign(Object.create(null), projectSettings.mcpServers || {}) as Record<string, unknown>;
   delete mcpServers[serverName];
-  manager.updateProjectSetting('mcpServers', mcpServers);
+  await manager.updateProjectSetting('mcpServers', mcpServers);
 }
 
 export function getTrustedMCPServerFingerprints(): Record<string, string> {
@@ -113,7 +113,7 @@ export function getTrustedMCPServerFingerprints(): Record<string, string> {
   return projectSettings.trustedMcpServers || {};
 }
 
-export function setTrustedMCPServerFingerprint(serverName: string, fingerprint: string): void {
+export async function setTrustedMCPServerFingerprint(serverName: string, fingerprint: string): Promise<void> {
   if (!isSafeServerKey(serverName)) {
     throw new Error(`Invalid MCP server name: ${serverName}`);
   }
@@ -122,10 +122,10 @@ export function setTrustedMCPServerFingerprint(serverName: string, fingerprint: 
   const projectSettings = manager.loadProjectSettings();
   const trusted = Object.assign(Object.create(null), projectSettings.trustedMcpServers || {}) as Record<string, string>;
   trusted[serverName] = fingerprint;
-  manager.updateProjectSetting('trustedMcpServers', trusted);
+  await manager.updateProjectSetting('trustedMcpServers', trusted);
 }
 
-export function removeTrustedMCPServerFingerprint(serverName: string): void {
+export async function removeTrustedMCPServerFingerprint(serverName: string): Promise<void> {
   if (!isSafeServerKey(serverName)) {
     return;
   }
@@ -134,7 +134,7 @@ export function removeTrustedMCPServerFingerprint(serverName: string): void {
   const projectSettings = manager.loadProjectSettings();
   const trusted = Object.assign(Object.create(null), projectSettings.trustedMcpServers || {}) as Record<string, string>;
   delete trusted[serverName];
-  manager.updateProjectSetting('trustedMcpServers', trusted);
+  await manager.updateProjectSetting('trustedMcpServers', trusted);
 }
 
 export const PREDEFINED_SERVERS: Record<string, MCPServerConfig> = {};
