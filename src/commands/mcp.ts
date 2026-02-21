@@ -5,6 +5,7 @@ import { MCPServerConfig } from '../mcp/client.js';
 import chalk from 'chalk';
 import { createHash } from 'crypto';
 import { canonicalJsonStringify } from '../utils/canonical-json.js';
+import { sanitizeTerminalText } from '../utils/terminal-sanitize.js';
 
 
 const MAX_JSON_CONFIG_LENGTH = 64 * 1024;
@@ -289,7 +290,7 @@ export function createMCPCommand(): Command {
           ? chalk.green('✓ Connected') 
           : chalk.red('✗ Disconnected');
         
-        console.log(`${chalk.bold(server.name)}: ${status}`);
+        console.log(`${chalk.bold(sanitizeTerminalText(server.name))}: ${status}`);
         
         // Display transport information
         if (server.transport) {
@@ -298,11 +299,11 @@ export function createMCPCommand(): Command {
             const redactedArgs = (server.transport.args || []).map((arg) => redactCliArg(arg));
             console.log(`  Command: ${server.transport.command} ${redactedArgs.join(' ')}`);
           } else if (server.transport.type === 'http' || server.transport.type === 'sse') {
-            console.log(`  URL: ${server.transport.url}`);
+            console.log(`  URL: ${sanitizeTerminalText(String(server.transport.url || ''))}`);
           }
         } else if (server.command) {
           // Legacy format
-          console.log(`  Command: ${server.command} ${(server.args || []).join(' ')}`);
+          console.log(`  Command: ${sanitizeTerminalText(server.command)} ${(server.args || []).map((arg) => sanitizeTerminalText(arg)).join(' ')}`);
         }
         
         if (isConnected) {
@@ -315,8 +316,9 @@ export function createMCPCommand(): Command {
           console.log(`  Tools: ${tools.length}`);
           if (tools.length > 0) {
             tools.forEach(tool => {
-              const displayName = tool.name.replace(`mcp__${server.name}__`, '');
-              console.log(`    - ${displayName}: ${tool.description}`);
+              const displayName = sanitizeTerminalText(tool.name.replace(`mcp__${server.name}__`, ''));
+              const safeDescription = sanitizeTerminalText(tool.description);
+              console.log(`    - ${displayName}: ${safeDescription}`);
             });
           }
         }
@@ -351,8 +353,9 @@ export function createMCPCommand(): Command {
         if (tools.length > 0) {
           console.log('  Tools:');
           tools.forEach(tool => {
-            const displayName = tool.name.replace(`mcp__${name}__`, '');
-            console.log(`    - ${displayName}: ${tool.description}`);
+            const displayName = sanitizeTerminalText(tool.name.replace(`mcp__${name}__`, ''));
+            const safeDescription = sanitizeTerminalText(tool.description);
+            console.log(`    - ${displayName}: ${safeDescription}`);
           });
         }
 

@@ -30,6 +30,24 @@ const DEFAULT_MCP_TOOL_TIMEOUT_MS = "30000";
 const DEFAULT_MCP_CHILD_KILL_GRACE_MS = "1500";
 const DEFAULT_MCP_MAX_OUTPUT_BYTES = "1000000";
 
+const MCP_ENV_LIMITS = {
+  MCP_TOOL_TIMEOUT_MS: { min: 1_000, max: 120_000 },
+  MCP_CHILD_KILL_GRACE_MS: { min: 100, max: 10_000 },
+  MCP_MAX_OUTPUT_BYTES: { min: 64 * 1024, max: 10 * 1024 * 1024 },
+} as const;
+
+function parseBoundedMcpEnvInt(
+  key: keyof typeof MCP_ENV_LIMITS,
+  rawValue: string
+): string {
+  const numeric = Number(rawValue);
+  const { min, max } = MCP_ENV_LIMITS[key];
+  if (!Number.isInteger(numeric) || numeric < min || numeric > max) {
+    throw new Error(`${key} must be an integer between ${min} and ${max}`);
+  }
+  return String(numeric);
+}
+
 export interface MCPTransport {
   connect(): Promise<Transport>;
   disconnect(): Promise<void>;
@@ -70,12 +88,31 @@ export class StdioTransport implements MCPTransport {
       Object.entries(overrides).filter(([key]) => isAllowedMcpEnvKey(key))
     );
 
+    const configuredToolTimeout = parseBoundedMcpEnvInt(
+      "MCP_TOOL_TIMEOUT_MS",
+      sanitizedOverrides.MCP_TOOL_TIMEOUT_MS
+        || process.env.MCP_TOOL_TIMEOUT_MS
+        || DEFAULT_MCP_TOOL_TIMEOUT_MS
+    );
+    const configuredKillGrace = parseBoundedMcpEnvInt(
+      "MCP_CHILD_KILL_GRACE_MS",
+      sanitizedOverrides.MCP_CHILD_KILL_GRACE_MS
+        || process.env.MCP_CHILD_KILL_GRACE_MS
+        || DEFAULT_MCP_CHILD_KILL_GRACE_MS
+    );
+    const configuredMaxOutput = parseBoundedMcpEnvInt(
+      "MCP_MAX_OUTPUT_BYTES",
+      sanitizedOverrides.MCP_MAX_OUTPUT_BYTES
+        || process.env.MCP_MAX_OUTPUT_BYTES
+        || DEFAULT_MCP_MAX_OUTPUT_BYTES
+    );
+
     const env = {
       ...baseEnv,
       ...sanitizedOverrides,
-      MCP_TOOL_TIMEOUT_MS: process.env.MCP_TOOL_TIMEOUT_MS || DEFAULT_MCP_TOOL_TIMEOUT_MS,
-      MCP_CHILD_KILL_GRACE_MS: process.env.MCP_CHILD_KILL_GRACE_MS || DEFAULT_MCP_CHILD_KILL_GRACE_MS,
-      MCP_MAX_OUTPUT_BYTES: process.env.MCP_MAX_OUTPUT_BYTES || DEFAULT_MCP_MAX_OUTPUT_BYTES,
+      MCP_TOOL_TIMEOUT_MS: configuredToolTimeout,
+      MCP_CHILD_KILL_GRACE_MS: configuredKillGrace,
+      MCP_MAX_OUTPUT_BYTES: configuredMaxOutput,
       // Try to suppress verbose output from mcp-remote
       MCP_REMOTE_QUIET: '1',
       MCP_REMOTE_SILENT: '1',
