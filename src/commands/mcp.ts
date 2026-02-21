@@ -6,6 +6,23 @@ import chalk from 'chalk';
 import { createHash } from 'crypto';
 import { canonicalJsonStringify } from '../utils/canonical-json.js';
 
+
+const MAX_JSON_CONFIG_LENGTH = 64 * 1024;
+const MAX_JSON_CONFIG_DEPTH = 20;
+
+function getJsonDepth(value: unknown, depth = 0): number {
+  if (depth > MAX_JSON_CONFIG_DEPTH) {
+    return depth;
+  }
+  if (!value || typeof value !== 'object') {
+    return depth;
+  }
+  if (Array.isArray(value)) {
+    return value.reduce((maxDepth, entry) => Math.max(maxDepth, getJsonDepth(entry, depth + 1)), depth);
+  }
+  return Object.values(value).reduce((maxDepth, entry) => Math.max(maxDepth, getJsonDepth(entry, depth + 1)), depth);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -168,12 +185,20 @@ export function createMCPCommand(): Command {
     .description('Add an MCP server from JSON configuration')
     .action(async (name: string, jsonConfig: string) => {
       try {
+        if (jsonConfig.length > MAX_JSON_CONFIG_LENGTH) {
+          throw new Error(`JSON configuration is too large (max ${MAX_JSON_CONFIG_LENGTH} bytes)`);
+        }
+
         let config: unknown;
         try {
           config = JSON.parse(jsonConfig);
         } catch (_error) {
           console.error(chalk.red('Error: Invalid JSON configuration'));
           throw new Error('Invalid JSON configuration');
+        }
+
+        if (getJsonDepth(config) > MAX_JSON_CONFIG_DEPTH) {
+          throw new Error(`JSON configuration exceeds max depth of ${MAX_JSON_CONFIG_DEPTH}`);
         }
 
         const transportConfig = parseJsonServerConfig(config);

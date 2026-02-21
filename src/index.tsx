@@ -27,12 +27,12 @@ Examples:
 
 Full TUI launches automatically when TTY is detected.
 `);
-    process.exit(0);
+    return;
   }
 
   if (args.includes('--version')) {
     console.log("v2.0.0");
-    process.exit(0);
+    return;
   }
 
   let shuttingDown = false;
@@ -104,13 +104,15 @@ Full TUI launches automatically when TTY is detected.
         component: "index",
         error: err instanceof Error ? err.message : String(err),
       });
-      process.exit(1);
+      await shutdown("CLI_ERROR", 1);
+      return;
     }
-    process.exit(0);
+    await shutdown("CLI_COMPLETE", 0);
+    return;
   }
 
   // Full TUI (best experience in Windows Terminal / PowerShell)
   const { waitUntilExit } = render(<App />);
   await waitUntilExit();
-  process.exit(0);
+  await shutdown("TUI_COMPLETE", 0);
 })();

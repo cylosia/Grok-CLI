@@ -140,6 +140,14 @@ export class SettingsManager {
     return SettingsManager.instance;
   }
 
+  private refreshProjectSettingsPath(): void {
+    const nextPath = path.join(process.cwd(), ".grok", "settings.json");
+    if (nextPath !== this.projectSettingsPath) {
+      this.projectSettingsPath = nextPath;
+      this.projectSettingsCache = null;
+    }
+  }
+
   private readJsonFile(filePath: string): unknown | null {
     if (!fsSync.existsSync(filePath)) {
       return null;
@@ -186,7 +194,10 @@ export class SettingsManager {
   }
 
   public loadUserSettings(forceReload = false): UserSettings {
-    if (this.userSettingsCache && (!forceReload || this.pendingWriteCount > 0)) {
+    if (this.userSettingsCache && !forceReload) {
+      return { ...this.userSettingsCache };
+    }
+    if (forceReload && this.pendingWriteCount > 0 && this.userSettingsCache) {
       return { ...this.userSettingsCache };
     }
     try {
@@ -271,7 +282,12 @@ export class SettingsManager {
   }
 
   public loadProjectSettings(forceReload = false): ProjectSettings {
-    if (this.projectSettingsCache && (!forceReload || this.pendingWriteCount > 0)) {
+    this.refreshProjectSettingsPath();
+
+    if (this.projectSettingsCache && !forceReload) {
+      return { ...this.projectSettingsCache };
+    }
+    if (forceReload && this.pendingWriteCount > 0 && this.projectSettingsCache) {
       return { ...this.projectSettingsCache };
     }
 
@@ -299,6 +315,7 @@ export class SettingsManager {
   }
 
   public async saveProjectSettings(settings: Partial<ProjectSettings>): Promise<void> {
+    this.refreshProjectSettingsPath();
     const current = this.projectSettingsCache ? sanitizeProjectSettings(this.projectSettingsCache) : sanitizeProjectSettings(this.readJsonFile(this.projectSettingsPath));
     const merged = { ...DEFAULT_PROJECT_SETTINGS, ...current, ...sanitizeProjectSettings(settings) };
     this.projectSettingsCache = merged;

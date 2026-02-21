@@ -44,6 +44,7 @@ export class MCPManager {
   private static readonly TIMED_OUT_CALL_COOLDOWN_MS = 30_000;
   private timedOutCallCooldownUntil = new Map<string, number>();
   private inFlightToolCalls = new Map<string, Promise<{ content: unknown[] }>>();
+  private remotelyUncertainCallKeys = new Set<string>();
 
   private getServerFingerprint(config: MCPServerConfig): string {
     const payload = {
@@ -225,6 +226,10 @@ export class MCPManager {
   }
 
   private assertCallNotCoolingDown(callKey: string, name: string): void {
+    if (this.remotelyUncertainCallKeys.has(callKey)) {
+      throw new Error(`MCP tool call was previously timed out and may have completed remotely; retry blocked for safety: ${name}`);
+    }
+
     const until = this.timedOutCallCooldownUntil.get(callKey) ?? 0;
     const now = Date.now();
     if (until > now) {
@@ -266,6 +271,7 @@ export class MCPManager {
         timeoutHandle = setTimeout(() => {
           const timeoutError = new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`);
           this.timedOutCallCooldownUntil.set(callKey, Date.now() + MCPManager.TIMED_OUT_CALL_COOLDOWN_MS);
+          this.remotelyUncertainCallKeys.add(callKey);
           controller.abort(timeoutError);
           void this.teardownServerWithTimeout(serverName).then(() => {
             reject(timeoutError);
@@ -297,7 +303,9 @@ export class MCPManager {
         });
       this.inFlightToolCalls.set(callKey, normalizedCallPromise);
 
-      return await Promise.race([normalizedCallPromise, timeoutPromise]);
+      const result = await Promise.race([normalizedCallPromise, timeoutPromise]);
+      this.remotelyUncertainCallKeys.delete(callKey);
+      return result;
     } catch (error) {
       throw error;
     } finally {

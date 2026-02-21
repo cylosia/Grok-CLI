@@ -394,18 +394,41 @@ export class BashTool {
       }
     }
 
-    if (command === 'find' && !args.includes('-maxdepth')) {
-      return {
-        success: false,
-        error: `find requires -maxdepth <= ${MAX_FIND_DEPTH} to prevent runaway scans`,
-      };
+    const readNumericFlagValue = (flagName: string): number | undefined => {
+      for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index];
+        if (arg === flagName) {
+          const nextValue = args[index + 1];
+          if (!nextValue) {
+            return Number.NaN;
+          }
+          return Number(nextValue);
+        }
+        if (arg.startsWith(`${flagName}=`)) {
+          return Number(arg.slice(flagName.length + 1));
+        }
+      }
+      return undefined;
+    };
+
+    if (command === 'find') {
+      const maxDepth = readNumericFlagValue('-maxdepth');
+      if (maxDepth === undefined || !Number.isInteger(maxDepth) || maxDepth < 0 || maxDepth > MAX_FIND_DEPTH) {
+        return {
+          success: false,
+          error: `find requires -maxdepth as an integer between 0 and ${MAX_FIND_DEPTH}`,
+        };
+      }
     }
 
-    if ((command === 'grep' || command === 'rg') && !args.includes('--max-count')) {
-      return {
-        success: false,
-        error: `${command} requires --max-count <= ${MAX_SEARCH_MATCHES} to prevent runaway scans`,
-      };
+    if (command === 'grep' || command === 'rg') {
+      const maxCount = readNumericFlagValue('--max-count');
+      if (maxCount === undefined || !Number.isInteger(maxCount) || maxCount < 1 || maxCount > MAX_SEARCH_MATCHES) {
+        return {
+          success: false,
+          error: `${command} requires --max-count as an integer between 1 and ${MAX_SEARCH_MATCHES}`,
+        };
+      }
     }
 
     return { success: true };
