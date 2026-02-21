@@ -1,100 +1,96 @@
 # Hostile Production Audit (TypeScript/PostgreSQL Readiness)
 
 ## Scope and verification protocol
-- File inventory pass (TypeScript + config + SQL presence):
+- File inventory pass:
   - `rg --files -g '*.ts' -g '*.tsx' -g '*.sql' -g 'package.json' -g 'tsconfig*.json' --glob '!node_modules/**'`
-- Targeted static pattern passes for unsafe async/control-flow/input handling:
-  - `rg -n "as unknown as|Promise\.race|process\.exit\(|JSON\.parse\(|AbortController|spawn\(|--max-count|-maxdepth|unhandledRejection|uncaughtException" src --glob '!node_modules/**'`
-- Large-file architecture sweep (>300 LOC):
-  - `python - <<'PY' ...` (line-count script)
-- Independent verification pass #1: threat-model review (security/data-loss/outage paths).
-- Independent verification pass #2: reliability/config/error-path review.
+- High-risk static-pattern pass:
+  - `rg -n "process\.exit\(|Promise\.race\(|JSON\.parse\(|spawn\(|as unknown as|AbortController|catch \(" src test`
+- Large-file architecture pass:
+  - `python` LOC scan for files >300 lines in `src/`
+- Independent verification pass #1 (security + race conditions): timeout behavior, shutdown paths, command execution controls.
+- Independent verification pass #2 (type/config/error-path): `tsconfig`, lint/typecheck posture, catch/rollback semantics.
 
 Validation commands run:
 - `npm run -s typecheck` ✅
-- `npm run -s lint` ✅
-- `npm test -s` ✅
-- `npm run -s audit:ci` ⚠️ (`npm audit` returned `Forbidden`; SBOM fallback executed)
+- `npm run -s test:unit` ✅
+- `npm audit --json` ⚠️ (`403 Forbidden` from npm audit endpoint in this environment)
 
 ## Phase 1 — Systematic decomposition findings
 
 ### Critical (P0)
-1. **File:Line:Column** `src/mcp/client.ts:283:7`  
-   **Category:** Security | Async | Data Integrity  
-   **Violation:** Tool execution timeout is local-only (`Promise.race` + abort + teardown), but there is no protocol-level cancellation acknowledgement or idempotency key passed to the remote MCP tool call. A timed-out call can still commit remotely and then be retried, causing duplicate side effects.  
-   **Concrete fix:** Add a mandatory idempotency token to every mutable MCP tool call and enforce server-side deduplication; add explicit cancellation RPC/ack before retry eligibility.  
-   **Risk if not fixed:** Duplicate writes/side-effects under latency spikes, with direct financial/data-integrity exposure.
+1. **File:Line:Column** `src/mcp/client.ts:270:11`
+   **Category:** Security | Async | Data Integrity
+   **Violation:** Timeout handling marks calls as "remotely uncertain" and tears down transport locally, but there is no protocol-level idempotency token/cancel ACK in the outbound call payload. A timed-out mutating tool call can complete server-side and be retried later as a distinct call.
+   **Concrete fix:** Inject a required `idempotencyKey` into every mutable MCP tool invocation and enforce server-side dedupe. Add explicit cancellation handshake/ack before allowing replay.
+   **Risk if not fixed:** Duplicate side effects (e.g., repeated financial transactions or duplicated destructive operations) under latency/packet-loss conditions.
 
 ### High (P1)
-2. **File:Line:Column** `src/utils/settings-manager.ts:188:9`  
-   **Category:** Concurrency | Data Integrity  
-   **Violation:** `loadUserSettings(forceReload)` and `loadProjectSettings(forceReload)` return cached values when `pendingWriteCount > 0` even if `forceReload=true`, creating stale-read windows during concurrent updates.  
-   **Concrete fix:** Convert load paths to async and `await this.flushWrites()` when `forceReload` is true; otherwise include monotonic versioning and reject stale cache return when writes are pending.  
-   **Risk if not fixed:** Lost-update and stale-config behavior during concurrent operations.
+2. **File:Line:Column** `src/hooks/use-input-handler.impl.ts:175:7` and `src/hooks/use-input-handler.impl.ts:307:7`
+   **Category:** Resilience | Architecture
+   **Violation:** UI command paths call `process.exit(0)` directly, bypassing centralized shutdown cleanup in `src/index.tsx`.
+   **Concrete fix:** Replace both direct exits with a callback/event that routes through the shared `shutdown(...)` path in `index.tsx`.
+   **Risk if not fixed:** Leaked MCP sessions, partially flushed state, and non-deterministic teardown behavior.
 
-3. **File:Line:Column** `src/tools/bash.ts:397:5`  
-   **Category:** Security | Performance | Resource Control  
-   **Violation:** Guardrails claim `find requires -maxdepth <= 8` and `grep/rg requires --max-count <= 500`, but code checks only flag presence, not numeric bounds or parse validity.  
-   **Concrete fix:** Parse and validate numeric flag values (`Number.isInteger`, range check) and hard-fail if missing/out-of-range.  
-   **Risk if not fixed:** Runaway scans and self-inflicted denial-of-service under adversarial prompts.
+3. **File:Line:Column** `src/mcp/client.ts:45:11`
+   **Category:** Performance | Reliability
+   **Violation:** `remotelyUncertainCallKeys` is unbounded and only cleared when the **same** call later succeeds. In failure-heavy workloads with unique args, this set can grow indefinitely and permanently block retries for those keys.
+   **Concrete fix:** Replace with bounded TTL cache (LRU + expiry), persist metadata (`firstSeen`, retryBudget), and provide manual/operator override to clear stale keys.
+   **Risk if not fixed:** Gradual memory growth + accumulating "retry blocked" failures after transient incidents.
 
-4. **File:Line:Column** `src/index.tsx:107:7`  
-   **Category:** Resilience | Architecture  
-   **Violation:** Direct `process.exit()` is used in CLI paths instead of going through shared shutdown; cleanup hooks (`removeServer`, timeout-bounded teardown) can be bypassed.  
-   **Concrete fix:** Replace direct exits with `await shutdown("CLI_EXIT", code)` and centralize all process termination in one path.  
-   **Risk if not fixed:** Abrupt termination, leaked in-flight operations, nondeterministic teardown behavior.
+4. **File:Line:Column** `src/utils/settings-manager.ts:200:9` and `src/utils/settings-manager.ts:290:9`
+   **Category:** Concurrency | Data Integrity
+   **Violation:** `forceReload` still returns cached settings when writes are pending; callers requesting strong reload semantics can observe stale data.
+   **Concrete fix:** Make `forceReload` path await `flushWrites()` before read, or reject with explicit `write in progress` error.
+   **Risk if not fixed:** Stale reads and last-write-wins anomalies during concurrent config updates.
 
 ### Medium (P2)
-5. **File:Line:Column** `src/utils/settings-manager.ts:133:5`  
-   **Category:** Architecture | Multi-tenant isolation  
-   **Violation:** `SettingsManager` is a process-global singleton that binds `projectSettingsPath` from `process.cwd()` once at construction. Later workspace changes can operate against an unintended project settings file.  
-   **Concrete fix:** Remove singleton or key instances by canonical workspace root; recompute project settings path on context switch.  
-   **Risk if not fixed:** Cross-project config bleed and hard-to-reproduce state contamination.
+5. **File:Line:Column** `src/utils/settings-manager.ts:151:3`
+   **Category:** Performance | Architecture
+   **Violation:** Synchronous filesystem calls (`existsSync`, `statSync`, `readFileSync`, `writeFileSync`, `renameSync`) are used on interactive execution paths.
+   **Concrete fix:** Migrate to async fs APIs end-to-end and keep sync I/O only for startup-only bootstrap paths.
+   **Risk if not fixed:** Event-loop stalls and degraded responsiveness under slow disk/NFS/container FS jitter.
 
-6. **File:Line:Column** `src/commands/mcp.ts:173:20`  
-   **Category:** Security | Input validation  
-   **Violation:** JSON config input is parsed directly from CLI string with no explicit size/depth bound prior to parse.  
-   **Concrete fix:** Enforce max input length before parse (e.g., 64KB), and reject deeply nested/oversized structures before constructing transport config.  
-   **Risk if not fixed:** Memory pressure or parse-time denial-of-service from oversized payloads.
-
-7. **File:Line:Column** `src/grok/client.ts:294:3`  
-   **Category:** Resilience | Retry policy  
-   **Violation:** Retry classifier only checks HTTP status codes; no special handling/backoff strategy for transport-level errors (DNS/TLS/socket reset) and no dead-letter/circuit-breaker behavior.  
-   **Concrete fix:** Extend `isRetryable` to include explicit network error classes/codes and add circuit-breaker/open-state after repeated upstream failure windows.  
-   **Risk if not fixed:** Cascading latency/failure amplification during provider instability.
+6. **File:Line:Column** `src/hooks/use-input-handler.impl.ts:1:1`, `src/tools/text-editor.impl.ts:1:1`, `src/tools/search.ts:1:1`, `src/tools/bash.ts:1:1`
+   **Category:** Architecture | SOLID
+   **Violation:** Multiple "god files" well above 300 LOC with mixed responsibilities (input handling, command parsing, orchestration, side effects).
+   **Concrete fix:** Split by responsibility boundaries (parsing/validation/execution/state transitions) and inject dependencies at module boundaries.
+   **Risk if not fixed:** Higher defect density, brittle change impact, and poor test isolation.
 
 ### Low (P3)
-8. **File:Line:Column** `src/utils/confirmation-service.ts:28:1`  
-   **Category:** Architecture | Testability  
-   **Violation:** Global singleton + EventEmitter-based mutable queue complicates deterministic tests and introduces hidden cross-test state unless reset perfectly.  
-   **Concrete fix:** Inject `ConfirmationService` via interface/factory per app instance; reserve singleton only for top-level wiring.  
-   **Risk if not fixed:** Flaky tests and harder fault injection for concurrency edge cases.
+7. **File:Line:Column** `src/index.tsx:75:3` and `src/index.tsx:83:3`
+   **Category:** Observability | Reliability
+   **Violation:** Global rejection/exception handlers log only message strings; stack traces and causal metadata are dropped.
+   **Concrete fix:** Include sanitized stack + error name + cause chain fields in logger context.
+   **Risk if not fixed:** Slower incident triage and weaker forensic debugging signal.
 
-9. **File:Line:Column** `src/types/globals.d.ts:3:5`  
-   **Category:** Type Safety  
-   **Violation:** Global EventEmitter declaration broadens listener signatures to `unknown[]`, reducing compile-time signal quality for event payloads.  
-   **Concrete fix:** Replace global augmentation with narrow typed event interfaces at call sites.  
-   **Risk if not fixed:** Easier accidental event-contract drift.
+8. **File:Line:Column** `src/mcp/transports.ts:37:5`
+   **Category:** Security | Operations
+   **Violation:** Environment allowlist for stdio transport omits explicit timeout/guard envs; runtime execution policy is partially implicit.
+   **Concrete fix:** Add explicit policy env contract (`MCP_TOOL_TIMEOUT_MS`, max output, child kill grace) and enforce at transport boundary.
+   **Risk if not fixed:** Configuration drift and inconsistent process safety envelopes across deployments.
 
 ## PostgreSQL/SQL surgery status
-- No PostgreSQL query layer, ORM model, migration directory, or `.sql` files were found in-repo during this audit (`rg --files -g '*.sql'` returned no matches).
-- SQL-specific controls requested (N+1, transaction isolation, migration reversibility, index fit, lock hierarchy, timestamptz usage) are **not verifiable in this repository snapshot** because the DB layer is absent here.
+- No PostgreSQL query layer, ORM model files, migration directory, or `.sql` files were found in this repository snapshot.
+- SQL-specific checks requested (N+1, isolation levels, migration reversibility, index design, lock hierarchy, timestamptz correctness) cannot be verified without DB code/migrations.
 
 ## Phase 2 — Adversarial re-review
-Rechecked all high-risk paths with explicit second pass emphasis on:
-- Timeout/race/error boundaries (`src/mcp/client.ts`, `src/index.tsx`).
-- File-system state consistency and cache behavior (`src/utils/settings-manager.ts`).
-- Command sandbox constraints (`src/tools/bash.ts`).
-- Config/dependency controls (`tsconfig.json`, `.eslintrc.js`, `package.json`).
+Re-ran second-pass review focused on:
+- "Obvious" control flow and catch paths (`src/index.tsx`, `src/hooks/use-input-handler.impl.ts`).
+- Timeout/race semantics (`src/mcp/client.ts`).
+- Config/tooling drift (`package.json`, `tsconfig.json`, `eslint.config.js`).
 
-No additional P0 issues were discovered beyond the timeout/idempotency gap above.
+No new P0 findings were added beyond the timeout/idempotency gap.
 
-## Immediate incident ranking (deploy-today risk)
-1. **P0: MCP timeout without remote idempotency/cancel acknowledgement** (`src/mcp/client.ts:283`).  
-   **Blast radius:** Any mutating MCP tool call under packet loss/latency; duplicate irreversible external actions.
-2. **P1: Settings stale-read under pending writes** (`src/utils/settings-manager.ts:188`, `:273`).  
-   **Blast radius:** User/project configuration coherence across interactive sessions and concurrent writes.
-3. **P1: Bash guardrail bypass via unbounded `-maxdepth` / `--max-count` values** (`src/tools/bash.ts:397`, `:404`).  
-   **Blast radius:** Host resource exhaustion (CPU/IO), degraded service responsiveness.
-4. **P1: Non-centralized process exits bypassing graceful shutdown** (`src/index.tsx:107`).  
-   **Blast radius:** Partial cleanup and stuck external resources during failures.
+## Immediate incident ranking (deploy-today)
+1. **P0: Timeout without protocol idempotency/cancel ack** (`src/mcp/client.ts:270`).
+   - **Blast radius:** Any mutating MCP integration under network instability; potential duplicate real-world side effects.
+2. **P1: Direct process exits bypassing cleanup** (`src/hooks/use-input-handler.impl.ts:175`, `:307`).
+   - **Blast radius:** Entire CLI session lifecycle; leaked external sessions and inconsistent shutdown.
+3. **P1: Unbounded remotely uncertain call key growth** (`src/mcp/client.ts:45`).
+   - **Blast radius:** Long-lived processes under failure/retry storms; memory pressure and permanent retry denial for affected operations.
+4. **P1: `forceReload` stale-read semantics** (`src/utils/settings-manager.ts:200`, `:290`).
+   - **Blast radius:** Configuration correctness across concurrent operations.
+
+
+## Remediation status
+- P0 through P3 findings from this report have been remediated in code, including MCP timeout quarantine hardening, graceful UI exit routing, bounded uncertain-call tracking, force-reload write-pending guards, enriched crash logging context, and explicit MCP transport policy env defaults.

@@ -73,9 +73,12 @@ Full TUI launches automatically when TTY is detected.
   });
 
   process.on("unhandledRejection", (reason) => {
+    const error = reason instanceof Error ? reason : undefined;
     logger.error("unhandled-rejection", {
       component: "index",
-      error: reason instanceof Error ? reason.message : String(reason),
+      error: error ? error.message : String(reason),
+      errorName: error?.name,
+      errorStack: error?.stack,
     });
     void shutdown("UNHANDLED_REJECTION", 1);
   });
@@ -84,6 +87,8 @@ Full TUI launches automatically when TTY is detected.
     logger.error("uncaught-exception", {
       component: "index",
       error: error instanceof Error ? error.message : String(error),
+      errorName: error instanceof Error ? error.name : undefined,
+      errorStack: error instanceof Error ? error.stack : undefined,
     });
     void shutdown("UNCAUGHT_EXCEPTION", 1);
   });

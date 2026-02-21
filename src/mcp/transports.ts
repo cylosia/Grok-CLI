@@ -15,6 +15,9 @@ export interface TransportConfig {
 }
 
 const PROTECTED_ENV_KEYS = new Set(["PATH", "HOME", "NODE_OPTIONS"]);
+const DEFAULT_MCP_TOOL_TIMEOUT_MS = "30000";
+const DEFAULT_MCP_CHILD_KILL_GRACE_MS = "1500";
+const DEFAULT_MCP_MAX_OUTPUT_BYTES = "1000000";
 
 export interface MCPTransport {
   connect(): Promise<Transport>;
@@ -51,6 +54,9 @@ export class StdioTransport implements MCPTransport {
     const env = {
       ...baseEnv,
       ...sanitizedOverrides,
+      MCP_TOOL_TIMEOUT_MS: process.env.MCP_TOOL_TIMEOUT_MS || DEFAULT_MCP_TOOL_TIMEOUT_MS,
+      MCP_CHILD_KILL_GRACE_MS: process.env.MCP_CHILD_KILL_GRACE_MS || DEFAULT_MCP_CHILD_KILL_GRACE_MS,
+      MCP_MAX_OUTPUT_BYTES: process.env.MCP_MAX_OUTPUT_BYTES || DEFAULT_MCP_MAX_OUTPUT_BYTES,
       // Try to suppress verbose output from mcp-remote
       MCP_REMOTE_QUIET: '1',
       MCP_REMOTE_SILENT: '1',
