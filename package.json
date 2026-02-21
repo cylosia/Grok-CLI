@@ -42,5 +42,9 @@
     "tsx": "^4.0.0",
     "typescript": "^5.3.3"
   },
-  "packageManager": "npm@10"
+  "packageManager": "npm@10",
+  "engines": {
+    "node": ">=20 <23",
+    "npm": ">=10 <12"
+  }
 }
