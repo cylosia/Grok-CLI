@@ -23,3 +23,8 @@ test("validateMcpUrl allows private https with explicit private https opt-in", a
 test("validateMcpUrl blocks ipv4-mapped-ipv6 private addresses", async () => {
   await assert.rejects(() => validateMcpUrl("https://[::ffff:127.0.0.1]:7777"));
 });
+
+
+test("validateMcpUrl rejects credential-bearing URLs", async () => {
+  await assert.rejects(() => validateMcpUrl("https://user:pass@example.com/mcp"));
+});
