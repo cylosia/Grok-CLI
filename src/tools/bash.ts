@@ -143,20 +143,23 @@ export class BashTool {
 
       let stdout = '';
       let stderr = '';
+      let totalOutputBytes = 0;
       let truncated = false;
       let timedOut = false;
 
       const appendChunk = (current: string, data: unknown): string => {
         if (truncated) return current;
         const chunk = String(data);
-        const next = current + chunk;
-        if (next.length <= MAX_OUTPUT_BYTES) {
-          return next;
+        const chunkBytes = Buffer.byteLength(chunk, 'utf8');
+        if (totalOutputBytes + chunkBytes <= MAX_OUTPUT_BYTES) {
+          totalOutputBytes += chunkBytes;
+          return current + chunk;
         }
 
         truncated = true;
-        const allowedBytes = Math.max(MAX_OUTPUT_BYTES - current.length, 0);
-        const clipped = allowedBytes > 0 ? chunk.slice(0, allowedBytes) : '';
+        const allowedBytes = Math.max(MAX_OUTPUT_BYTES - totalOutputBytes, 0);
+        const clipped = Buffer.from(chunk, 'utf8').subarray(0, allowedBytes).toString('utf8');
+        totalOutputBytes = MAX_OUTPUT_BYTES;
         return `${current}${clipped}\n[output truncated after ${MAX_OUTPUT_BYTES} bytes]`;
       };
 

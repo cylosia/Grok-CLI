@@ -24,11 +24,13 @@ export interface MCPTransport {
 
 export class StdioTransport implements MCPTransport {
   private transport: StdioClientTransport | null = null;
+  private readonly command: string;
 
   constructor(private config: TransportConfig) {
     if (!config.command) {
       throw new Error('Command is required for stdio transport');
     }
+    this.command = config.command;
   }
 
   async connect(): Promise<Transport> {
@@ -57,7 +59,7 @@ export class StdioTransport implements MCPTransport {
     };
 
     this.transport = new StdioClientTransport({
-      command: this.config.command!,
+      command: this.command,
       args: this.config.args || [],
       env
     });
@@ -79,15 +81,18 @@ export class StdioTransport implements MCPTransport {
 }
 
 export class HttpTransport extends EventEmitter implements MCPTransport {
-  constructor(private config: TransportConfig) {
+  private readonly url: string;
+
+  constructor(config: TransportConfig) {
     super();
     if (!config.url) {
       throw new Error('URL is required for HTTP transport');
     }
+    this.url = config.url;
   }
 
   async connect(): Promise<Transport> {
-    await validateMcpUrl(this.config.url!, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
+    await validateMcpUrl(this.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
     throw new Error("HTTP MCP transport is temporarily disabled until full duplex SDK transport support is implemented");
   }
 
@@ -101,15 +106,18 @@ export class HttpTransport extends EventEmitter implements MCPTransport {
 }
 
 export class SSETransport extends EventEmitter implements MCPTransport {
-  constructor(private config: TransportConfig) {
+  private readonly url: string;
+
+  constructor(config: TransportConfig) {
     super();
     if (!config.url) {
       throw new Error('URL is required for SSE transport');
     }
+    this.url = config.url;
   }
 
   async connect(): Promise<Transport> {
-    await validateMcpUrl(this.config.url!, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
+    await validateMcpUrl(this.url, process.env.GROK_ALLOW_LOCAL_MCP_HTTP === "1");
     throw new Error("SSE MCP transport is temporarily disabled until full duplex SDK transport support is implemented");
   }
 

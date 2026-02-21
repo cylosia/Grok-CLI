@@ -378,7 +378,7 @@ Available models: ${modelNames.join(", ")}`,
         }
 
         // Add all changes
-        const addResult = await agent.executeBashCommand("git add -u");
+        const addResult = await agent.executeBashCommand("git add -A");
 
         if (!addResult.success) {
           const addErrorEntry: ChatEntry = {
@@ -405,7 +405,7 @@ Available models: ${modelNames.join(", ")}`,
             type: "function",
             function: {
               name: "bash",
-              arguments: JSON.stringify({ command: "git add -u" }),
+              arguments: JSON.stringify({ command: "git add -A" }),
             },
           },
           toolResult: addResult,

@@ -30,12 +30,12 @@ export interface UserSettings {
   models?: string[];
   autoDiscover?: boolean;
   settingsVersion?: number;
+  trustedMcpServers?: Record<string, string>;
 }
 
 export interface ProjectSettings {
   model?: string;
   mcpServers?: Record<string, unknown>;
-  trustedMcpServers?: Record<string, string>;
 }
 
 const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -68,6 +68,11 @@ function sanitizeUserSettings(value: unknown): Partial<UserSettings> {
   if (Array.isArray(record.models) && record.models.every((m) => typeof m === "string")) sanitized.models = record.models;
   if (typeof record.autoDiscover === "boolean") sanitized.autoDiscover = record.autoDiscover;
   if (typeof record.settingsVersion === "number") sanitized.settingsVersion = record.settingsVersion;
+  if (record.trustedMcpServers && typeof record.trustedMcpServers === "object") {
+    sanitized.trustedMcpServers = Object.fromEntries(
+      Object.entries(toSafeObjectRecord(record.trustedMcpServers)).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    );
+  }
 
   return sanitized;
 }
@@ -92,11 +97,6 @@ function sanitizeProjectSettings(value: unknown): Partial<ProjectSettings> {
   const sanitized: Partial<ProjectSettings> = {};
   if (typeof record.model === "string") sanitized.model = record.model;
   if (record.mcpServers && typeof record.mcpServers === "object") sanitized.mcpServers = toSafeObjectRecord(record.mcpServers);
-  if (record.trustedMcpServers && typeof record.trustedMcpServers === "object") {
-    sanitized.trustedMcpServers = Object.fromEntries(
-      Object.entries(toSafeObjectRecord(record.trustedMcpServers)).filter((entry): entry is [string, string] => typeof entry[1] === "string")
-    );
-  }
   return sanitized;
 }
 
