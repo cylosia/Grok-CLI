@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.ci.json",
     "test": "npm run -s typecheck && npm run -s test:unit",
     "audit:ci": "bash scripts/audit-ci.sh",
     "test:unit": "tsx --test test/**/*.test.ts",

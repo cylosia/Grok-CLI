@@ -24,7 +24,7 @@ const MCP_ENV_ALLOWLIST = new Set([
 ]);
 
 function isAllowedMcpEnvKey(key: string): boolean {
-  return MCP_ENV_ALLOWLIST.has(key) || key.startsWith("MCP_");
+  return MCP_ENV_ALLOWLIST.has(key);
 }
 const DEFAULT_MCP_TOOL_TIMEOUT_MS = "30000";
 const DEFAULT_MCP_CHILD_KILL_GRACE_MS = "1500";
@@ -58,16 +58,17 @@ export class StdioTransport implements MCPTransport {
     }, {});
 
     // Create transport with sanitized environment variables to suppress verbose output
-    const sanitizedOverrides = Object.fromEntries(
-      Object.entries(this.config.env || {}).filter(([key]) => !PROTECTED_ENV_KEYS.has(key) && isAllowedMcpEnvKey(key))
-    );
-
-    const rejectedKeys = Object.keys(this.config.env || {}).filter(
-      (key) => !PROTECTED_ENV_KEYS.has(key) && !isAllowedMcpEnvKey(key)
+    const overrides = this.config.env || {};
+    const rejectedKeys = Object.keys(overrides).filter(
+      (key) => PROTECTED_ENV_KEYS.has(key) || !isAllowedMcpEnvKey(key)
     );
     if (rejectedKeys.length > 0) {
       throw new Error(`Unsupported MCP stdio env override keys: ${rejectedKeys.join(", ")}`);
     }
+
+    const sanitizedOverrides = Object.fromEntries(
+      Object.entries(overrides).filter(([key]) => isAllowedMcpEnvKey(key))
+    );
 
     const env = {
       ...baseEnv,
