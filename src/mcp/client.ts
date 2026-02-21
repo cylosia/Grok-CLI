@@ -40,6 +40,8 @@ export class MCPManager {
   private static readonly TOOL_CALL_TIMEOUT_MS = 30_000;
   private static readonly INIT_FAILURE_COOLDOWN_MS = 60_000;
   private static readonly TEARDOWN_TIMEOUT_MS = 5_000;
+  private static readonly TIMED_OUT_CALL_COOLDOWN_MS = 30_000;
+  private timedOutCallCooldownUntil = new Map<string, number>();
 
   private getServerFingerprint(config: MCPServerConfig): string {
     const payload = {
@@ -200,6 +202,21 @@ export class MCPManager {
     ]);
   }
 
+  private buildCallKey(name: string, args: Record<string, unknown>): string {
+    return createHash("sha256").update(JSON.stringify({ name, args })).digest("hex");
+  }
+
+  private assertCallNotCoolingDown(callKey: string, name: string): void {
+    const until = this.timedOutCallCooldownUntil.get(callKey) ?? 0;
+    const now = Date.now();
+    if (until > now) {
+      throw new Error(`MCP tool call is cooling down after a timeout: ${name}`);
+    }
+    if (until !== 0) {
+      this.timedOutCallCooldownUntil.delete(callKey);
+    }
+  }
+
   async callTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown[] }> {
     const parts = name.split("__");
     if (parts.length < 3 || parts[0] !== "mcp") {
@@ -211,6 +228,8 @@ export class MCPManager {
       throw new Error(`Invalid MCP server name: ${parts[1]}`);
     }
     const toolName = parts.slice(2).join("__");
+    const callKey = this.buildCallKey(name, args);
+    this.assertCallNotCoolingDown(callKey, name);
     const server = this.servers.get(serverName);
 
     if (!server) {
@@ -222,6 +241,7 @@ export class MCPManager {
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutHandle = setTimeout(() => {
+          this.timedOutCallCooldownUntil.set(callKey, Date.now() + MCPManager.TIMED_OUT_CALL_COOLDOWN_MS);
           reject(new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`));
           void this.teardownServerWithTimeout(serverName).catch((teardownError) => {
             logger.warn("mcp-server-teardown-after-timeout-failed", {

@@ -231,8 +231,52 @@ export class BashTool {
     return { success: true, output: `Changed directory to: ${this.currentDirectory}` };
   }
 
+  private async validateGitArgs(args: string[]): Promise<ToolResult> {
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (!arg) {
+        continue;
+      }
+
+      if (arg === "--") {
+        for (let pathIndex = index + 1; pathIndex < args.length; pathIndex += 1) {
+          const pathArg = args[pathIndex];
+          if (!pathArg || pathArg.startsWith("-")) {
+            continue;
+          }
+          const pathValidation = await this.validatePathArg(pathArg);
+          if (!pathValidation.success) {
+            return pathValidation;
+          }
+        }
+        break;
+      }
+
+      if (arg === "-C" || arg.startsWith("-C")) {
+        const inlineValue = arg.length > 2 ? arg.slice(2) : undefined;
+        const value = inlineValue || args[index + 1];
+        if (!value) {
+          return { success: false, error: "Missing value for path-bearing flag -C" };
+        }
+        const pathValidation = await this.validatePathArg(value);
+        if (!pathValidation.success) {
+          return pathValidation;
+        }
+        if (!inlineValue) {
+          index += 1;
+        }
+      }
+    }
+
+    return { success: true };
+  }
+
   private async validateArgs(command: string, args: string[]): Promise<ToolResult> {
-    const pathArgCommands = new Set(['ls', 'cat', 'mkdir', 'touch', 'find', 'rg', 'grep', 'git']);
+    if (command === 'git') {
+      return this.validateGitArgs(args);
+    }
+
+    const pathArgCommands = new Set(['ls', 'cat', 'mkdir', 'touch', 'find', 'rg', 'grep']);
     if (!pathArgCommands.has(command)) {
       return { success: true };
     }

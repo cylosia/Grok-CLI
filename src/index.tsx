@@ -34,12 +34,12 @@ Full TUI launches automatically when TTY is detected.
   }
 
   let shuttingDown = false;
-  const shutdown = async (signal: string) => {
+  const shutdown = async (signal: string, exitCode = 0) => {
     if (shuttingDown) {
       return;
     }
     shuttingDown = true;
-    logger.info("shutdown-signal-received", { component: "index", signal });
+    logger.info("shutdown-signal-received", { component: "index", signal, exitCode });
 
     try {
       const manager = getMCPManager();
@@ -52,7 +52,7 @@ Full TUI launches automatically when TTY is detected.
       });
     }
 
-    process.exit(0);
+    process.exit(exitCode);
   };
 
   process.on("SIGINT", () => {
@@ -60,6 +60,22 @@ Full TUI launches automatically when TTY is detected.
   });
   process.on("SIGTERM", () => {
     void shutdown("SIGTERM");
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    logger.error("unhandled-rejection", {
+      component: "index",
+      error: reason instanceof Error ? reason.message : String(reason),
+    });
+    void shutdown("UNHANDLED_REJECTION", 1);
+  });
+
+  process.on("uncaughtException", (error) => {
+    logger.error("uncaught-exception", {
+      component: "index",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    void shutdown("UNCAUGHT_EXCEPTION", 1);
   });
 
   // CLI Mode (MINGW64 / non-TTY safe)

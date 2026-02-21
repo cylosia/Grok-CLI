@@ -1,8 +1,17 @@
 import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+
+function parseIpv4(host: string): [number, number, number, number] | null {
+  const parts = host.split(".").map((segment) => Number(segment));
+  if (parts.length !== 4 || parts.some((value) => Number.isNaN(value) || value < 0 || value > 255)) {
+    return null;
+  }
+  return [parts[0], parts[1], parts[2], parts[3]];
+}
 
 function isPrivateIpv4(host: string): boolean {
-  const parts = host.split(".").map((segment) => Number(segment));
-  if (parts.length !== 4 || parts.some((value) => Number.isNaN(value))) {
+  const parts = parseIpv4(host);
+  if (!parts) {
     return false;
   }
 
@@ -16,7 +25,19 @@ function isPrivateIpv4(host: string): boolean {
 
 function isPrivateIpv6(host: string): boolean {
   const normalized = host.toLowerCase();
-  return normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80:");
+  if (normalized === "::1") {
+    return true;
+  }
+
+  if (normalized.startsWith("::ffff:")) {
+    const mappedIpv4 = normalized.slice("::ffff:".length);
+    return isPrivateIpv4(mappedIpv4);
+  }
+
+  return normalized.startsWith("fc")
+    || normalized.startsWith("fd")
+    || normalized.startsWith("fe80:")
+    || normalized.startsWith("fec0:");
 }
 
 function isPrivateHost(host: string): boolean {
@@ -31,7 +52,7 @@ function isPrivateHost(host: string): boolean {
 }
 
 async function resolveHostAddresses(host: string): Promise<string[]> {
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(":")) {
+  if (isIP(host) !== 0) {
     return [host];
   }
 
@@ -48,7 +69,7 @@ async function resolveHostAddresses(host: string): Promise<string[]> {
 
 async function resolveStableHostAddresses(host: string): Promise<string[]> {
   const first = await resolveHostAddresses(host);
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(":")) {
+  if (isIP(host) !== 0) {
     return first;
   }
 

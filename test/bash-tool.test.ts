@@ -55,3 +55,14 @@ test("bash tool blocks symlink escape outside workspace", async () => {
     confirmations.resetSession();
   }
 });
+
+test("bash tool does not treat git revision args as path args", async () => {
+  const confirmations = ConfirmationService.getInstance();
+  confirmations.setSessionFlag("bashCommands", true);
+
+  const tool = new BashTool();
+  const result = await tool.executeArgs("git", ["rev-parse", "HEAD"]);
+  assert.equal(Boolean(result.error?.includes("outside workspace")), false);
+
+  confirmations.resetSession();
+});
