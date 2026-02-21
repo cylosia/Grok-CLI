@@ -197,8 +197,8 @@ export class SettingsManager {
     if (this.userSettingsCache && !forceReload) {
       return { ...this.userSettingsCache };
     }
-    if (forceReload && this.pendingWriteCount > 0 && this.userSettingsCache) {
-      return { ...this.userSettingsCache };
+    if (forceReload && this.pendingWriteCount > 0) {
+      throw new Error("Cannot force reload user settings while writes are pending; call flushWrites() first");
     }
     try {
       const rawSettings = this.readJsonFile(this.userSettingsPath);
@@ -287,8 +287,8 @@ export class SettingsManager {
     if (this.projectSettingsCache && !forceReload) {
       return { ...this.projectSettingsCache };
     }
-    if (forceReload && this.pendingWriteCount > 0 && this.projectSettingsCache) {
-      return { ...this.projectSettingsCache };
+    if (forceReload && this.pendingWriteCount > 0) {
+      throw new Error("Cannot force reload project settings while writes are pending; call flushWrites() first");
     }
 
     try {

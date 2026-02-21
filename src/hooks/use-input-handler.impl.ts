@@ -43,6 +43,10 @@ export function useInputHandler({
   isStreaming,
   isConfirmationActive = false,
 }: UseInputHandlerProps) {
+  const requestGracefulExit = () => {
+    process.kill(process.pid, "SIGTERM");
+  };
+
   const [showCommandSuggestions, setShowCommandSuggestions] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [showModelSelection, setShowModelSelection] = useState(false);
@@ -172,7 +176,7 @@ export function useInputHandler({
 
   const handleInputSubmit = async (userInput: string) => {
     if (userInput === "exit" || userInput === "quit") {
-      process.exit(0);
+      requestGracefulExit();
       return;
     }
 
@@ -304,7 +308,7 @@ Examples:
     }
 
     if (trimmedInput === "/exit") {
-      process.exit(0);
+      requestGracefulExit();
       return true;
     }
 
