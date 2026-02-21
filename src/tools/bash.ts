@@ -5,48 +5,22 @@ import { ToolResult } from '../types/index.js';
 import { ConfirmationService } from '../utils/confirmation-service.js';
 import { isWithinRoot } from './path-safety.js';
 import { hasUnterminatedQuoteOrEscape, tokenizeBashLikeCommand } from './bash-tokenizer.js';
-
-const ALLOWED_COMMANDS = new Set([
-  'git', 'ls', 'pwd', 'cat', 'mkdir', 'touch', 'echo', 'grep', 'find', 'rg'
-]);
-
-const BLOCKED_COMMANDS = new Set(['rm', 'mv', 'cp', 'node', 'npm']);
-const BLOCKED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
-  find: new Set(['-exec', '-execdir', '-ok', '-okdir']),
-  rg: new Set(['--pre', '--pre-glob', '--no-ignore-files', '--ignore-file']),
-  grep: new Set(['--include-from', '--exclude-from', '-f']),
-  git: new Set(['-c', '--config-env', '--exec-path']),
-};
-
-const PATH_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
-  git: new Set(['-C']),
-  rg: new Set(['--ignore-file', '--pre']),
-  grep: new Set(['--exclude-from', '--include-from', '-f']),
-  find: new Set([]),
-  ls: new Set([]),
-  cat: new Set([]),
-  mkdir: new Set([]),
-  touch: new Set([]),
-  pwd: new Set([]),
-};
-
-const UNSAFE_SHELL_METACHARS = /[;&|><`\n\r]/;
-const MAX_OUTPUT_BYTES = 1_000_000;
-const MAX_FIND_DEPTH = 8;
-const MAX_SEARCH_MATCHES = 500;
-const GIT_ALLOWED_READONLY_SUBCOMMANDS = new Set([
-  'status', 'diff', 'log', 'show', 'rev-parse', 'branch'
-]);
-const GIT_ALLOWED_MUTATING_SUBCOMMANDS = new Set([
-  'add', 'restore', 'commit', 'push', 'tag', 'stash'
-]);
-const GIT_BLOCKED_DESTRUCTIVE_SUBCOMMANDS = new Set([
-  'checkout', 'switch', 'reset', 'merge', 'rebase', 'cherry-pick'
-]);
-const GIT_PATH_BEARING_FLAGS = new Set([
-  '-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--exec-path'
-]);
-const PATH_ARG_COMMANDS = new Set(['ls', 'cat', 'mkdir', 'touch', 'find', 'rg', 'grep']);
+import { killProcessTree } from '../utils/process-tree.js';
+import {
+  ALLOWED_COMMANDS,
+  BLOCKED_COMMANDS,
+  BLOCKED_FLAGS_BY_COMMAND,
+  GIT_ALLOWED_MUTATING_SUBCOMMANDS,
+  GIT_ALLOWED_READONLY_SUBCOMMANDS,
+  GIT_BLOCKED_DESTRUCTIVE_SUBCOMMANDS,
+  GIT_PATH_BEARING_FLAGS,
+  MAX_FIND_DEPTH,
+  MAX_OUTPUT_BYTES,
+  MAX_SEARCH_MATCHES,
+  PATH_ARG_COMMANDS,
+  PATH_FLAGS_BY_COMMAND,
+  UNSAFE_SHELL_METACHARS,
+} from './bash-policy.js';
 
 export class BashTool {
   private workspaceRoot: string = process.cwd();
@@ -292,6 +266,7 @@ export class BashTool {
       const child = spawn(command, args, {
         cwd: this.currentDirectory,
         shell: false,
+        detached: process.platform !== 'win32',
       });
 
       let stdout = '';
@@ -319,9 +294,9 @@ export class BashTool {
       let forceKillTimer: NodeJS.Timeout | undefined;
       const timer = setTimeout(() => {
         timedOut = true;
-        child.kill('SIGTERM');
+        killProcessTree(child.pid ?? 0, 'SIGTERM');
         forceKillTimer = setTimeout(() => {
-          child.kill('SIGKILL');
+          killProcessTree(child.pid ?? 0, 'SIGKILL');
         }, 1_500);
       }, timeout);
 

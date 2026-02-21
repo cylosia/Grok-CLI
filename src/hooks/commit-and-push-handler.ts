@@ -20,6 +20,7 @@ export async function runCommitAndPushFlow({
   setIsProcessing,
   setIsStreaming,
 }: CommitAndPushContext): Promise<void> {
+  const allowCommitAutogen = process.env.GROK_ALLOW_COMMIT_AUTOGEN === "1";
   appendChatEntry(setChatHistory, {
     type: "user",
     content: "/commit-and-push",
@@ -68,7 +69,8 @@ export async function runCommitAndPushFlow({
 
     const stagedFilesResult = await agent.executeBashCommand("git diff --cached --name-only");
     const stagedStatsResult = await agent.executeBashCommand("git diff --cached --stat");
-    const commitPrompt = `Generate a concise, professional git commit message for these changes:\n\nGit Status:\n${initialStatusResult.output}\n\nStaged Files:\n${stagedFilesResult.output || "No staged files shown"}\n\nDiff Summary:\n${stagedStatsResult.output || "No diff summary shown"}\n\nDo not include any secrets or file contents in the response.\nFollow conventional commit format (feat:, fix:, docs:, etc.) and keep it under 72 characters.\nRespond with ONLY the commit message, no additional text.`;
+    const redactedStatus = "[REDACTED: enable GROK_ALLOW_COMMIT_AUTOGEN=1 to include git metadata]";
+    const commitPrompt = `Generate a concise, professional git commit message for these changes:\n\nGit Status:\n${allowCommitAutogen ? (initialStatusResult.output || "No status output shown") : redactedStatus}\n\nStaged Files:\n${allowCommitAutogen ? (stagedFilesResult.output || "No staged files shown") : redactedStatus}\n\nDiff Summary:\n${allowCommitAutogen ? (stagedStatsResult.output || "No diff summary shown") : redactedStatus}\n\nDo not include any secrets or file contents in the response.\nFollow conventional commit format (feat:, fix:, docs:, etc.) and keep it under 72 characters.\nRespond with ONLY the commit message, no additional text.`;
 
     let commitMessage = "";
     let streamingEntry: ChatEntry | null = null;

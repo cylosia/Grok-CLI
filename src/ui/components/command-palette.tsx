@@ -18,6 +18,10 @@ export const CommandPalette = ({ supervisor, onClose }: CommandPaletteProps) => 
 
   useInput((input, key) => {
     if (key.escape || key.ctrl && input === "c") onClose();
+    if (key.backspace || key.delete) {
+      setQuery((prev) => prev.slice(0, -1));
+      return;
+    }
     if (key.return && !isRunning) {
       setIsRunning(true);
       setError(null);
@@ -49,7 +53,14 @@ export const CommandPalette = ({ supervisor, onClose }: CommandPaletteProps) => 
         });
       return;
     }
-    setQuery(prev => prev + input);
+    if (input >= " " && input !== "\u007f") {
+      setQuery((prev) => {
+        if (prev.length >= 2000) {
+          return prev;
+        }
+        return prev + input;
+      });
+    }
   });
 
   return (

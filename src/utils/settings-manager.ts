@@ -209,6 +209,13 @@ export class SettingsManager {
   private constructor(private readonly workspaceRoot: string) {
     this.userSettingsPath = path.join(os.homedir(), ".grok", "user-settings.json");
     this.projectSettingsPath = path.join(workspaceRoot, ".grok", "settings.json");
+
+    try {
+      this.loadUserSettings();
+      this.loadProjectSettings();
+    } catch {
+      // Lazily surfaced to callers on first explicit access.
+    }
   }
 
   public static getInstance(workspaceRoot = process.cwd()): SettingsManager {
