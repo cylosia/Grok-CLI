@@ -44,6 +44,7 @@ export class MCPManager {
   private static readonly TIMED_OUT_CALL_COOLDOWN_MS = 30_000;
   private static readonly REMOTELY_UNCERTAIN_TTL_MS = 10 * 60_000;
   private static readonly MAX_REMOTELY_UNCERTAIN_KEYS = 1_000;
+  private static readonly MAX_TIMED_OUT_COOLDOWN_KEYS = 2_000;
   private timedOutCallCooldownUntil = new Map<string, number>();
   private inFlightToolCalls = new Map<string, Promise<{ content: unknown[] }>>();
   private remotelyUncertainCallKeys = new Map<string, number>();
@@ -230,6 +231,7 @@ export class MCPManager {
 
   private assertCallNotCoolingDown(callKey: string, name: string): void {
     this.pruneRemotelyUncertainCallKeys();
+    this.pruneTimedOutCooldownKeys();
 
     if (this.remotelyUncertainCallKeys.has(callKey)) {
       throw new Error(`MCP tool call was previously timed out and may have completed remotely; retry blocked for safety: ${name}`);
@@ -245,6 +247,46 @@ export class MCPManager {
     }
   }
 
+
+  private pruneTimedOutCooldownKeys(): void {
+    const now = Date.now();
+    for (const [key, until] of this.timedOutCallCooldownUntil.entries()) {
+      if (until <= now) {
+        this.timedOutCallCooldownUntil.delete(key);
+      }
+    }
+
+    while (this.timedOutCallCooldownUntil.size > MCPManager.MAX_TIMED_OUT_COOLDOWN_KEYS) {
+      const oldest = this.timedOutCallCooldownUntil.keys().next().value;
+      if (!oldest) {
+        break;
+      }
+      this.timedOutCallCooldownUntil.delete(oldest);
+    }
+  }
+
+  private isLikelyMutatingTool(name: string): boolean {
+    return /(create|update|delete|remove|write|set|insert|upsert|transfer|send|commit|charge|pay|withdraw|deposit)/i.test(name);
+  }
+
+  private withIdempotencyArgs(toolName: string, args: Record<string, unknown>, callKey: string): Record<string, unknown> {
+    if (!this.isLikelyMutatingTool(toolName)) {
+      return args;
+    }
+
+    const schemaIdKeys = ["idempotencyKey", "idempotency_key"];
+    for (const key of schemaIdKeys) {
+      const existing = args[key];
+      if (typeof existing === "string" && existing.length > 0) {
+        return args;
+      }
+    }
+
+    return {
+      ...args,
+      idempotencyKey: callKey,
+    };
+  }
   private assertServerNotQuarantined(serverName: MCPServerName, name: string): void {
     const now = Date.now();
     const quarantineUntil = this.serverCallQuarantineUntil.get(serverName) ?? 0;
@@ -317,6 +359,7 @@ export class MCPManager {
         timeoutHandle = setTimeout(() => {
           const timeoutError = new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`);
           this.timedOutCallCooldownUntil.set(callKey, Date.now() + MCPManager.TIMED_OUT_CALL_COOLDOWN_MS);
+          this.pruneTimedOutCooldownKeys();
           this.markRemotelyUncertain(callKey);
           this.serverCallQuarantineUntil.set(serverName, Date.now() + MCPManager.TIMED_OUT_CALL_COOLDOWN_MS);
           controller.abort(timeoutError);
@@ -333,9 +376,10 @@ export class MCPManager {
         }, MCPManager.TOOL_CALL_TIMEOUT_MS);
       });
 
+      const callArgs = this.withIdempotencyArgs(toolName, args, callKey);
       const callPromise = server.client.callTool({
         name: toolName,
-        arguments: args,
+        arguments: callArgs,
       }, undefined, {
         signal: controller.signal,
         timeout: MCPManager.TOOL_CALL_TIMEOUT_MS,

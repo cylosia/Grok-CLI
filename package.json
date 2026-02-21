@@ -1,7 +1,7 @@
 {
   "name": "grok-cli",
   "version": "2.0.0",
-  "description": "Grok CLI v2.0 – SuperAgent Terminal",
+  "description": "Grok CLI v2.0 \u2013 SuperAgent Terminal",
   "main": "dist/index.js",
   "bin": {
     "grok": "bin/grok"
@@ -10,7 +10,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "npm run -s typecheck && npm run -s test:unit",
-    "audit:ci": "npm audit --audit-level=high || (echo 'npm audit unavailable; generating SBOM fallback' && npm run -s sbom:generate)",
+    "audit:ci": "mkdir -p sbom && npm audit --audit-level=high --json > sbom/npm-audit.json",
     "test:unit": "tsx --test test/**/*.test.ts",
     "lint": "eslint src test --ext .ts,.tsx",
     "sbom:generate": "mkdir -p sbom && npm ls --all --json > sbom/npm-sbom.json"

@@ -15,6 +15,17 @@ export interface TransportConfig {
 }
 
 const PROTECTED_ENV_KEYS = new Set(["PATH", "HOME", "NODE_OPTIONS"]);
+const MCP_ENV_ALLOWLIST = new Set([
+  "MCP_TOOL_TIMEOUT_MS",
+  "MCP_CHILD_KILL_GRACE_MS",
+  "MCP_MAX_OUTPUT_BYTES",
+  "MCP_REMOTE_QUIET",
+  "MCP_REMOTE_SILENT",
+]);
+
+function isAllowedMcpEnvKey(key: string): boolean {
+  return MCP_ENV_ALLOWLIST.has(key) || key.startsWith("MCP_");
+}
 const DEFAULT_MCP_TOOL_TIMEOUT_MS = "30000";
 const DEFAULT_MCP_CHILD_KILL_GRACE_MS = "1500";
 const DEFAULT_MCP_MAX_OUTPUT_BYTES = "1000000";
@@ -48,8 +59,15 @@ export class StdioTransport implements MCPTransport {
 
     // Create transport with sanitized environment variables to suppress verbose output
     const sanitizedOverrides = Object.fromEntries(
-      Object.entries(this.config.env || {}).filter(([key]) => !PROTECTED_ENV_KEYS.has(key))
+      Object.entries(this.config.env || {}).filter(([key]) => !PROTECTED_ENV_KEYS.has(key) && isAllowedMcpEnvKey(key))
     );
+
+    const rejectedKeys = Object.keys(this.config.env || {}).filter(
+      (key) => !PROTECTED_ENV_KEYS.has(key) && !isAllowedMcpEnvKey(key)
+    );
+    if (rejectedKeys.length > 0) {
+      throw new Error(`Unsupported MCP stdio env override keys: ${rejectedKeys.join(", ")}`);
+    }
 
     const env = {
       ...baseEnv,

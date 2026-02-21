@@ -1,96 +1,85 @@
 # Hostile Production Audit (TypeScript/PostgreSQL Readiness)
 
 ## Scope and verification protocol
-- File inventory pass:
-  - `rg --files -g '*.ts' -g '*.tsx' -g '*.sql' -g 'package.json' -g 'tsconfig*.json' --glob '!node_modules/**'`
-- High-risk static-pattern pass:
-  - `rg -n "process\.exit\(|Promise\.race\(|JSON\.parse\(|spawn\(|as unknown as|AbortController|catch \(" src test`
-- Large-file architecture pass:
-  - `python` LOC scan for files >300 lines in `src/`
-- Independent verification pass #1 (security + race conditions): timeout behavior, shutdown paths, command execution controls.
-- Independent verification pass #2 (type/config/error-path): `tsconfig`, lint/typecheck posture, catch/rollback semantics.
+- Repository decomposition pass:
+  - `rg --files src test *.json *.js docs`
+- Type/config/test hardening pass:
+  - `npm run -s typecheck`
+  - `npm run -s lint`
+  - `npm run -s test:unit`
+- Security/static grep pass:
+  - `rg -n "process\.exit|process\.kill|spawn\(|JSON\.parse\(|as unknown as|AbortController|Promise\.race|catch \(" src test`
+- Architecture pass (large-file SRP risk):
+  - Python LOC scan for files >300 lines in `src/`
+- Dependency advisory pass:
+  - `npm audit --json` (environment returned `403 Forbidden`)
 
-Validation commands run:
-- `npm run -s typecheck` ✅
-- `npm run -s test:unit` ✅
-- `npm audit --json` ⚠️ (`403 Forbidden` from npm audit endpoint in this environment)
+Validation summary:
+- Typecheck: pass
+- Lint: pass
+- Unit tests: pass
+- npm audit: unavailable in this environment (403)
 
 ## Phase 1 — Systematic decomposition findings
 
 ### Critical (P0)
-1. **File:Line:Column** `src/mcp/client.ts:270:11`
-   **Category:** Security | Async | Data Integrity
-   **Violation:** Timeout handling marks calls as "remotely uncertain" and tears down transport locally, but there is no protocol-level idempotency token/cancel ACK in the outbound call payload. A timed-out mutating tool call can complete server-side and be retried later as a distinct call.
-   **Concrete fix:** Inject a required `idempotencyKey` into every mutable MCP tool invocation and enforce server-side dedupe. Add explicit cancellation handshake/ack before allowing replay.
-   **Risk if not fixed:** Duplicate side effects (e.g., repeated financial transactions or duplicated destructive operations) under latency/packet-loss conditions.
+1. **File:Line:Column** `src/mcp/transports.ts:51:7`
+   **Category:** Security | Architecture
+   **Violation:** `StdioTransport` applies a **blacklist** (`PROTECTED_ENV_KEYS`) rather than an allowlist to `config.env`, so arbitrary process-impacting environment variables (e.g., `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, language runtime hooks) can be injected into spawned MCP subprocesses.
+   **Concrete fix:** Replace blacklist merging with strict allowlist (e.g., `MCP_*` and explicitly sanctioned app vars only), and reject any unknown env key with a hard error.
+   **Risk if not fixed:** High-impact local code execution surface expansion and policy bypass in a financial workstation context where MCP server configuration may come from imported/shared config snippets.
 
 ### High (P1)
-2. **File:Line:Column** `src/hooks/use-input-handler.impl.ts:175:7` and `src/hooks/use-input-handler.impl.ts:307:7`
-   **Category:** Resilience | Architecture
-   **Violation:** UI command paths call `process.exit(0)` directly, bypassing centralized shutdown cleanup in `src/index.tsx`.
-   **Concrete fix:** Replace both direct exits with a callback/event that routes through the shared `shutdown(...)` path in `index.tsx`.
-   **Risk if not fixed:** Leaked MCP sessions, partially flushed state, and non-deterministic teardown behavior.
+2. **File:Line:Column** `src/mcp/client.ts:44:11` and `src/mcp/client.ts:319:11`
+   **Category:** Performance | Resilience
+   **Violation:** `timedOutCallCooldownUntil` grows without global pruning; entries are removed only if the *same key* is checked again. In failure storms with unique call signatures, this map can leak memory over process lifetime.
+   **Concrete fix:** Add TTL-based pruning for `timedOutCallCooldownUntil` (mirroring `remotelyUncertainCallKeys`) and cap map size using LRU eviction.
+   **Risk if not fixed:** Gradual memory pressure and degraded stability in long-lived sessions under flaky network/tool conditions.
 
-3. **File:Line:Column** `src/mcp/client.ts:45:11`
-   **Category:** Performance | Reliability
-   **Violation:** `remotelyUncertainCallKeys` is unbounded and only cleared when the **same** call later succeeds. In failure-heavy workloads with unique args, this set can grow indefinitely and permanently block retries for those keys.
-   **Concrete fix:** Replace with bounded TTL cache (LRU + expiry), persist metadata (`firstSeen`, retryBudget), and provide manual/operator override to clear stale keys.
-   **Risk if not fixed:** Gradual memory growth + accumulating "retry blocked" failures after transient incidents.
-
-4. **File:Line:Column** `src/utils/settings-manager.ts:200:9` and `src/utils/settings-manager.ts:290:9`
-   **Category:** Concurrency | Data Integrity
-   **Violation:** `forceReload` still returns cached settings when writes are pending; callers requesting strong reload semantics can observe stale data.
-   **Concrete fix:** Make `forceReload` path await `flushWrites()` before read, or reject with explicit `write in progress` error.
-   **Risk if not fixed:** Stale reads and last-write-wins anomalies during concurrent config updates.
+3. **File:Line:Column** `src/mcp/client.ts:353:28`
+   **Category:** Async | Data Integrity
+   **Violation:** Timeout mitigation quarantines and teardown are local-only controls; there is no protocol-level idempotency key attached to mutating MCP tool calls.
+   **Concrete fix:** Extend call payload contract to include `idempotencyKey` for mutating operations and require MCP server-side dedupe/at-most-once semantics.
+   **Risk if not fixed:** Duplicate side effects during timeout/retry windows (financially material if tools trigger irreversible external actions).
 
 ### Medium (P2)
-5. **File:Line:Column** `src/utils/settings-manager.ts:151:3`
+4. **File:Line:Column** `src/utils/settings-manager.ts:151:3`
    **Category:** Performance | Architecture
-   **Violation:** Synchronous filesystem calls (`existsSync`, `statSync`, `readFileSync`, `writeFileSync`, `renameSync`) are used on interactive execution paths.
-   **Concrete fix:** Migrate to async fs APIs end-to-end and keep sync I/O only for startup-only bootstrap paths.
-   **Risk if not fixed:** Event-loop stalls and degraded responsiveness under slow disk/NFS/container FS jitter.
+   **Violation:** Sync filesystem operations (`existsSync`, `statSync`, `readFileSync`, `writeFileSync`, `renameSync`) are used on runtime code paths, not startup-only bootstrapping.
+   **Concrete fix:** Convert `readJsonFile` and initial write paths to async I/O and propagate async loading APIs to call sites.
+   **Risk if not fixed:** Event-loop stalls under slow or contended filesystems, causing UI responsiveness degradation and delayed signal handling.
 
-6. **File:Line:Column** `src/hooks/use-input-handler.impl.ts:1:1`, `src/tools/text-editor.impl.ts:1:1`, `src/tools/search.ts:1:1`, `src/tools/bash.ts:1:1`
-   **Category:** Architecture | SOLID
-   **Violation:** Multiple "god files" well above 300 LOC with mixed responsibilities (input handling, command parsing, orchestration, side effects).
-   **Concrete fix:** Split by responsibility boundaries (parsing/validation/execution/state transitions) and inject dependencies at module boundaries.
-   **Risk if not fixed:** Higher defect density, brittle change impact, and poor test isolation.
+5. **File:Line:Column** `src/hooks/use-input-handler.impl.ts:1:1`, `src/tools/text-editor.impl.ts:1:1`, `src/tools/search.ts:1:1`, `src/tools/bash.ts:1:1`, `src/agent/grok-agent.ts:1:1`
+   **Category:** Architecture
+   **Violation:** Multiple >300-line files with mixed concerns (parsing, orchestration, side effects, UI state transitions), indicating SRP erosion and high blast radius per change.
+   **Concrete fix:** Split each into bounded modules (command parsing, execution adapters, state machine, presentation hooks) with explicit dependency injection seams.
+   **Risk if not fixed:** Rising regression probability, difficult targeted tests, and prolonged incident MTTR.
 
 ### Low (P3)
-7. **File:Line:Column** `src/index.tsx:75:3` and `src/index.tsx:83:3`
-   **Category:** Observability | Reliability
-   **Violation:** Global rejection/exception handlers log only message strings; stack traces and causal metadata are dropped.
-   **Concrete fix:** Include sanitized stack + error name + cause chain fields in logger context.
-   **Risk if not fixed:** Slower incident triage and weaker forensic debugging signal.
-
-8. **File:Line:Column** `src/mcp/transports.ts:37:5`
+6. **File:Line:Column** `package.json:11:5`
    **Category:** Security | Operations
-   **Violation:** Environment allowlist for stdio transport omits explicit timeout/guard envs; runtime execution policy is partially implicit.
-   **Concrete fix:** Add explicit policy env contract (`MCP_TOOL_TIMEOUT_MS`, max output, child kill grace) and enforce at transport boundary.
-   **Risk if not fixed:** Configuration drift and inconsistent process safety envelopes across deployments.
+   **Violation:** CI audit fallback (`audit:ci`) degrades to SBOM generation when npm audit is unavailable, but does not fail closed for known-advisory blind spots in disconnected/blocked registries.
+   **Concrete fix:** Add secondary offline advisory scanner (or pinned advisory snapshot) and make security gate explicit (fail release when advisory feed is unavailable beyond a short SLA).
+   **Risk if not fixed:** Silent exposure window for vulnerable dependencies when upstream advisory endpoint is intermittently unreachable.
 
-## PostgreSQL/SQL surgery status
-- No PostgreSQL query layer, ORM model files, migration directory, or `.sql` files were found in this repository snapshot.
-- SQL-specific checks requested (N+1, isolation levels, migration reversibility, index design, lock hierarchy, timestamptz correctness) cannot be verified without DB code/migrations.
+## PostgreSQL / SQL surgery status
+- No PostgreSQL driver usage, SQL query layer, migration directory, or `.sql` files were detected in this repository snapshot.
+- Requested SQL checks (N+1, isolation level correctness, migration safety, indexes, lock ordering, timestamptz correctness) are **not verifiable** without database code artifacts.
 
 ## Phase 2 — Adversarial re-review
-Re-ran second-pass review focused on:
-- "Obvious" control flow and catch paths (`src/index.tsx`, `src/hooks/use-input-handler.impl.ts`).
-- Timeout/race semantics (`src/mcp/client.ts`).
-- Config/tooling drift (`package.json`, `tsconfig.json`, `eslint.config.js`).
+Second pass specifically rechecked:
+- “Obvious-safe” areas (`src/mcp/client.ts`, `src/mcp/transports.ts`) for timeout/env bypass edge cases.
+- Error-path behavior in catch/finally blocks and process shutdown routing.
+- Config posture (`tsconfig.json`, `eslint.config.js`, `package.json`) for guardrail drift.
 
-No new P0 findings were added beyond the timeout/idempotency gap.
+No additional P0 beyond env-injection surface was found in this pass.
 
 ## Immediate incident ranking (deploy-today)
-1. **P0: Timeout without protocol idempotency/cancel ack** (`src/mcp/client.ts:270`).
-   - **Blast radius:** Any mutating MCP integration under network instability; potential duplicate real-world side effects.
-2. **P1: Direct process exits bypassing cleanup** (`src/hooks/use-input-handler.impl.ts:175`, `:307`).
-   - **Blast radius:** Entire CLI session lifecycle; leaked external sessions and inconsistent shutdown.
-3. **P1: Unbounded remotely uncertain call key growth** (`src/mcp/client.ts:45`).
-   - **Blast radius:** Long-lived processes under failure/retry storms; memory pressure and permanent retry denial for affected operations.
-4. **P1: `forceReload` stale-read semantics** (`src/utils/settings-manager.ts:200`, `:290`).
-   - **Blast radius:** Configuration correctness across concurrent operations.
-
-
-## Remediation status
-- P0 through P3 findings from this report have been remediated in code, including MCP timeout quarantine hardening, graceful UI exit routing, bounded uncertain-call tracking, force-reload write-pending guards, enriched crash logging context, and explicit MCP transport policy env defaults.
+1. **P0** — Arbitrary env-key injection into MCP stdio child process (`src/mcp/transports.ts:51`).
+   - **Blast radius:** Any host executing configured MCP servers; potential process behavior hijack and policy bypass.
+2. **P1** — Timeout/retry without protocol idempotency (`src/mcp/client.ts:353`).
+   - **Blast radius:** Any mutating MCP tool operation during partial-failure conditions.
+3. **P1** — Unbounded cooldown map growth (`src/mcp/client.ts:44`, `:319`).
+   - **Blast radius:** Long-lived sessions under retry storms; memory/perf degradation.
+4. **P2** — Sync settings I/O on runtime path (`src/utils/settings-manager.ts`).
+   - **Blast radius:** UI responsiveness and runtime latency under FS jitter.
