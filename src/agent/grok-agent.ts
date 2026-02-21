@@ -15,7 +15,7 @@ import { createTokenCounter, TokenCounter } from "../utils/token-counter.js";
 import { loadCustomInstructions } from "../utils/custom-instructions.js";
 import { getSettingsManager } from "../utils/settings-manager.js";
 import { AgentSupervisor, TaskResult } from "./supervisor.js";
-
+import { ConcurrencyGate } from "./concurrency-gate.js";
 
 const MAX_TOOL_ARGS_BYTES = 100_000;
 const MAX_CHAT_HISTORY_ENTRIES = 500;
@@ -86,9 +86,7 @@ export class GrokAgent extends EventEmitter {
   private mcpInitError: string | null = null;
   private maxToolRounds: number;
   private supervisor: AgentSupervisor | null;
-  private processingQueue: Promise<void> = Promise.resolve();
-  private isProcessing = false;
-  private hasPendingOperation = false;
+  private concurrencyGate = new ConcurrencyGate();
 
   private safeSerializeToolData(data: unknown): string {
     const seen = new WeakSet<object>();
@@ -177,29 +175,8 @@ export class GrokAgent extends EventEmitter {
     }
   }
 
-  private async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.hasPendingOperation || this.isProcessing) {
-      throw new Error("Agent is already processing another request");
-    }
-    this.hasPendingOperation = true;
-    const previous = this.processingQueue;
-    let release: () => void = () => {};
-    this.processingQueue = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await previous;
-    this.isProcessing = true;
-    try {
-      return await operation();
-    } finally {
-      this.isProcessing = false;
-      this.hasPendingOperation = false;
-      release();
-    }
-  }
-
   async processUserMessage(message: string): Promise<ChatEntry[]> {
-    return this.runExclusive(async () => {
+    return this.concurrencyGate.runExclusive(async () => {
     const entries: ChatEntry[] = [];
     const userEntry: ChatEntry = {
       type: "user",
@@ -289,10 +266,7 @@ export class GrokAgent extends EventEmitter {
   }
 
   async *processUserMessageStream(message: string): AsyncGenerator<StreamingChunk> {
-    if (this.isProcessing) {
-      throw new Error("Agent is already processing another request");
-    }
-    this.isProcessing = true;
+    this.concurrencyGate.tryAcquireImmediate();
     const userEntry: ChatEntry = {
       type: "user",
       content: message,
@@ -373,7 +347,7 @@ export class GrokAgent extends EventEmitter {
       yield { type: "content", content: "Stopped after reaching maximum tool rounds." };
       yield { type: "done" };
     } finally {
-      this.isProcessing = false;
+      this.concurrencyGate.releaseImmediate();
     }
   }
 

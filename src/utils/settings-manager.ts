@@ -88,6 +88,16 @@ function writeJsonFileSyncAtomic(filePath: string, value: object): void {
   fsSync.writeFileSync(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600 });
   fsSync.renameSync(tempFilePath, filePath);
 }
+
+async function ensureSecureDirectory(dir: string): Promise<void> {
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  const stats = await fs.stat(dir);
+  const currentMode = stats.mode & 0o777;
+  if ((currentMode & 0o077) !== 0) {
+    await fs.chmod(dir, 0o700);
+  }
+}
+
 function sanitizeProjectSettings(value: unknown): Partial<ProjectSettings> {
   if (!value || typeof value !== "object") {
     return {};
@@ -137,7 +147,7 @@ export class SettingsManager {
   private enqueueWrite(filePath: string, value: object): Promise<void> {
     const operation = this.writeQueue.then(async () => {
         const dir = path.dirname(filePath);
-        await fs.ensureDir(dir);
+        await ensureSecureDirectory(dir);
 
         const tempFilePath = `${filePath}.tmp`;
         const serialized = JSON.stringify(value, null, 2);

@@ -10,3 +10,7 @@ test("validateMcpUrl allows localhost http when local http explicitly allowed", 
   const result = await validateMcpUrl("http://localhost:3000", true);
   assert.match(result, /^http:\/\/localhost:3000\/?$/);
 });
+
+test("validateMcpUrl blocks ipv4-mapped-ipv6 private addresses", async () => {
+  await assert.rejects(() => validateMcpUrl("https://[::ffff:127.0.0.1]:7777"));
+});
