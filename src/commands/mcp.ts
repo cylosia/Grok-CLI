@@ -296,8 +296,9 @@ export function createMCPCommand(): Command {
         if (server.transport) {
           console.log(`  Transport: ${server.transport.type}`);
           if (server.transport.type === 'stdio') {
-            const redactedArgs = (server.transport.args || []).map((arg) => redactCliArg(arg));
-            console.log(`  Command: ${server.transport.command} ${redactedArgs.join(' ')}`);
+            const redactedArgs = (server.transport.args || []).map((arg) => sanitizeTerminalText(redactCliArg(arg)));
+            const safeCommand = sanitizeTerminalText(String(server.transport.command || ""));
+            console.log(`  Command: ${safeCommand} ${redactedArgs.join(' ')}`.trimEnd());
           } else if (server.transport.type === 'http' || server.transport.type === 'sse') {
             console.log(`  URL: ${sanitizeTerminalText(String(server.transport.url || ''))}`);
           }

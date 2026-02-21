@@ -107,12 +107,12 @@ export async function validateMcpUrl(rawUrl: string, options: McpUrlValidationOp
   const pinnedAddresses = options.pinnedAddresses;
   const normalized = rawUrl.trim();
 
-  const URLCtor = (globalThis as { URL?: new (input: string) => { protocol: string; hostname: string; toString(): string } }).URL;
+  const URLCtor = (globalThis as { URL?: new (input: string) => { protocol: string; hostname: string; username: string; password: string; toString(): string } }).URL;
   if (!URLCtor) {
     throw new Error("URL parser is not available in this runtime");
   }
 
-  let parsed: { protocol: string; hostname: string; toString(): string };
+  let parsed: { protocol: string; hostname: string; username: string; password: string; toString(): string };
   try {
     parsed = new URLCtor(normalized);
   } catch {
@@ -122,6 +122,11 @@ export async function validateMcpUrl(rawUrl: string, options: McpUrlValidationOp
   const scheme = parsed.protocol.replace(/:$/, "").toLowerCase();
   if (scheme !== "https" && scheme !== "http") {
     throw new Error(`Unsupported MCP URL scheme: ${scheme}:`);
+  }
+
+
+  if (parsed.username || parsed.password) {
+    throw new Error("MCP URLs must not include URL credentials");
   }
 
   const host = parsed.hostname.toLowerCase();

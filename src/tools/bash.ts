@@ -42,6 +42,7 @@ const GIT_ALLOWED_SUBCOMMANDS = new Set([
 const GIT_PATH_BEARING_FLAGS = new Set([
   '-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--exec-path'
 ]);
+const PATH_ARG_COMMANDS = new Set(['ls', 'cat', 'mkdir', 'touch', 'find', 'rg', 'grep']);
 
 export class BashTool {
   private workspaceRoot: string = process.cwd();
@@ -105,6 +106,8 @@ export class BashTool {
         return argsValidation;
       }
 
+      const normalizedArgs = await this.normalizeCommandArgs(command, args);
+
       const commandSpecificValidation = this.validateCommandSpecificArgs(command, args);
       if (!commandSpecificValidation.success) {
         return commandSpecificValidation;
@@ -113,11 +116,11 @@ export class BashTool {
       const sessionFlags = this.confirmationService.getSessionFlags();
       if (!sessionFlags.bashCommands && !sessionFlags.allOperations) {
         const confirmationResult = await this.confirmationService.requestConfirmation(
-          {
+              {
             operation: 'Run bash command',
-            filename: confirmationLabel || `${command} ${args.join(' ')}`.trim(),
+            filename: confirmationLabel || `${command} ${normalizedArgs.join(' ')}`.trim(),
             showVSCodeOpen: false,
-            content: `Command: ${command} ${args.join(' ')}\nWorking directory: ${this.currentDirectory}`,
+            content: `Command: ${command} ${normalizedArgs.join(' ')}\nWorking directory: ${this.currentDirectory}`,
           },
           'bash'
         );
@@ -130,7 +133,7 @@ export class BashTool {
         }
       }
 
-      const result = await this.runCommand(command, args, timeout);
+      const result = await this.runCommand(command, normalizedArgs, timeout);
       return {
         success: result.code === 0,
         ...(result.output ? { output: result.output } : {}),
@@ -317,8 +320,7 @@ export class BashTool {
       return this.validateGitArgs(args);
     }
 
-    const pathArgCommands = new Set(['ls', 'cat', 'mkdir', 'touch', 'find', 'rg', 'grep']);
-    if (!pathArgCommands.has(command)) {
+    if (!PATH_ARG_COMMANDS.has(command)) {
       return { success: true };
     }
 
@@ -370,6 +372,92 @@ export class BashTool {
     return { success: true };
   }
 
+  private async normalizeCommandArgs(command: string, args: string[]): Promise<string[]> {
+    if (command === 'git') {
+      return this.normalizeGitArgs(args);
+    }
+    if (!PATH_ARG_COMMANDS.has(command)) {
+      return [...args];
+    }
+
+    const normalizedArgs = [...args];
+    const pathFlags = PATH_FLAGS_BY_COMMAND[command] ?? new Set<string>();
+
+    for (let index = 0; index < normalizedArgs.length; index += 1) {
+      const arg = normalizedArgs[index];
+      if (!arg) continue;
+
+      if (arg.startsWith('-')) {
+        let normalizedFlag = arg.split('=')[0];
+        let inlineValue = arg.includes('=') ? arg.split('=').slice(1).join('=') : undefined;
+
+        if (!pathFlags.has(normalizedFlag)) {
+          for (const candidate of pathFlags) {
+            if (candidate.length === 2 && arg.startsWith(candidate) && arg.length > candidate.length) {
+              normalizedFlag = candidate;
+              inlineValue = arg.slice(candidate.length);
+              break;
+            }
+          }
+        }
+
+        if (pathFlags.has(normalizedFlag)) {
+          const value = inlineValue ?? normalizedArgs[index + 1];
+          if (!value) continue;
+          const canonicalPath = await this.normalizeSafePathArg(value);
+          if (inlineValue) {
+            normalizedArgs[index] = `${normalizedFlag}${normalizedFlag.length === 2 ? '' : '='}${canonicalPath}`;
+          } else {
+            normalizedArgs[index + 1] = canonicalPath;
+            index += 1;
+          }
+        }
+        continue;
+      }
+
+      normalizedArgs[index] = await this.normalizeSafePathArg(arg);
+    }
+
+    return normalizedArgs;
+  }
+
+  private async normalizeGitArgs(args: string[]): Promise<string[]> {
+    const normalizedArgs = [...args];
+    for (let index = 0; index < normalizedArgs.length; index += 1) {
+      const arg = normalizedArgs[index];
+      if (!arg) continue;
+
+      if (arg === '--') {
+        for (let pathIndex = index + 1; pathIndex < normalizedArgs.length; pathIndex += 1) {
+          const pathArg = normalizedArgs[pathIndex];
+          if (!pathArg || pathArg.startsWith('-')) continue;
+          normalizedArgs[pathIndex] = await this.normalizeSafePathArg(pathArg);
+        }
+        break;
+      }
+
+      const [normalizedFlag] = arg.split('=');
+      const explicitInline = arg.includes('=') ? arg.split('=').slice(1).join('=') : undefined;
+      if (GIT_PATH_BEARING_FLAGS.has(normalizedFlag) || arg === '-C' || arg.startsWith('-C')) {
+        const inlineValue = explicitInline ?? (arg.startsWith('-C') && arg.length > 2 ? arg.slice(2) : undefined);
+        const value = inlineValue ?? normalizedArgs[index + 1];
+        if (!value) continue;
+        const canonicalPath = await this.normalizeSafePathArg(value);
+        if (inlineValue) {
+          if (arg.startsWith('-C') && arg.length > 2 && !arg.includes('=')) {
+            normalizedArgs[index] = `-C${canonicalPath}`;
+          } else {
+            normalizedArgs[index] = `${normalizedFlag}=${canonicalPath}`;
+          }
+        } else {
+          normalizedArgs[index + 1] = canonicalPath;
+          index += 1;
+        }
+      }
+    }
+    return normalizedArgs;
+  }
+
   private async validatePathArg(arg: string): Promise<ToolResult> {
     if (!arg) {
       return { success: true };
@@ -397,6 +485,19 @@ export class BashTool {
     }
 
     return { success: true };
+  }
+
+  private async normalizeSafePathArg(arg: string): Promise<string> {
+    const workspaceRoot = await this.canonicalWorkspaceRootPromise;
+    const resolvedPath = path.resolve(this.currentDirectory, arg);
+    const canonicalCandidate = await this.canonicalizePathForValidation(resolvedPath);
+    const rootPrefix = workspaceRoot.endsWith(path.sep)
+      ? workspaceRoot
+      : `${workspaceRoot}${path.sep}`;
+    if (canonicalCandidate !== workspaceRoot && !canonicalCandidate.startsWith(rootPrefix)) {
+      throw new Error(`Path argument is not allowed outside workspace: ${arg}`);
+    }
+    return canonicalCandidate;
   }
 
   private async canonicalizePathForValidation(targetPath: string): Promise<string> {
