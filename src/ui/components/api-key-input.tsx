@@ -3,6 +3,7 @@ import { Box, Text, useInput, useApp } from "ink";
 import { GrokAgent } from "../../agent/grok-agent.js";
 import { GrokClient } from "../../grok/client.js";
 import { getSettingsManager } from "../../utils/settings-manager.js";
+import { logger } from "../../utils/logger.js";
 
 interface ApiKeyInputProps {
   onApiKeySet: (agent: GrokAgent) => void;
@@ -62,10 +63,9 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
       try {
         const manager = getSettingsManager();
         await manager.updateUserSetting('apiKey', apiKey);
-        console.log(`\n✅ API key validated and loaded for this session`);
+        logger.info("api-key-session-state-persisted", { component: "api-key-input" });
       } catch (_error) {
-        console.log('\n⚠️ Could not persist API key session state');
-        console.log('API key set for current session only');
+        logger.warn("api-key-session-state-persist-failed", { component: "api-key-input" });
       }
       
       onApiKeySet(agent);

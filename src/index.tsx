@@ -11,7 +11,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
   if (args.includes('--help') || args.includes('-h')) {
-    console.log(`
+    process.stdout.write(`
 Grok CLI v2.0 – SuperAgent Terminal
 
 Usage: grok [options] [prompt]
@@ -26,12 +26,13 @@ Examples:
   grok --cli "Refactor the theme engine"
 
 Full TUI launches automatically when TTY is detected.
+
 `);
     return;
   }
 
   if (args.includes('--version')) {
-    console.log("v2.0.0");
+    process.stdout.write("v2.0.0\n");
     return;
   }
 
@@ -130,8 +131,7 @@ Full TUI launches automatically when TTY is detected.
     const agent = new GrokAgent(config.grokApiKey, config.grokBaseUrl);
     try {
       const result = await agent.processUserMessage(prompt);
-      console.log("\nResult:");
-      console.log(safeJsonStringify(result));
+      process.stdout.write(`\nResult:\n${safeJsonStringify(result)}\n`);
     } catch (err) {
       logger.error("cli-mode-error", {
         component: "index",

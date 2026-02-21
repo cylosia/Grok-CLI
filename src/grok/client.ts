@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { randomUUID } from "node:crypto";
 
 export type GrokRole = "system" | "user" | "assistant" | "tool";
 
@@ -33,6 +34,7 @@ export interface ChatOptions {
   temperature?: number;
   maxTokens?: number;
   signal?: AbortSignal;
+  idempotencyKey?: string;
 }
 
 function toOpenAiMessages(messages: GrokMessage[]): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
@@ -162,6 +164,7 @@ export class GrokClient {
 
   async chat(messages: GrokMessage[], options: ChatOptions = {}): Promise<GrokMessage> {
     const convertedTools = toOpenAiTools(options.tools);
+    const idempotencyKey = options.idempotencyKey ?? randomUUID();
     const response = await this.withRetry(() =>
       this.client.chat.completions.create(
         {
@@ -171,7 +174,7 @@ export class GrokClient {
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(typeof options.maxTokens === "number" ? { max_tokens: options.maxTokens } : {}),
         },
-        { signal: options.signal, timeout: GrokClient.REQUEST_TIMEOUT_MS }
+        { signal: options.signal, timeout: GrokClient.REQUEST_TIMEOUT_MS, headers: { "Idempotency-Key": idempotencyKey } }
       ),
       3,
       options.signal
@@ -196,6 +199,7 @@ export class GrokClient {
     options: ChatOptions = {}
   ): AsyncGenerator<{ content?: string; toolCalls?: GrokToolCall[]; done?: boolean }> {
     const convertedTools = toOpenAiTools(options.tools);
+    const idempotencyKey = options.idempotencyKey ?? randomUUID();
     const stream = await this.withRetry(() =>
       this.client.chat.completions.create(
         {
@@ -206,7 +210,7 @@ export class GrokClient {
           ...(typeof options.maxTokens === "number" ? { max_tokens: options.maxTokens } : {}),
           stream: true,
         },
-        { signal: options.signal, timeout: GrokClient.REQUEST_TIMEOUT_MS }
+        { signal: options.signal, timeout: GrokClient.REQUEST_TIMEOUT_MS, headers: { "Idempotency-Key": idempotencyKey } }
       ),
       3,
       options.signal

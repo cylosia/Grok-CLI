@@ -8,6 +8,7 @@ const SETTINGS_VERSION = 4;
 const MAX_SETTINGS_FILE_BYTES = 1_000_000;
 const BLOCKED_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const PRIVATE_HOST_PATTERN = /(^localhost$|\.local$)/i;
+const DEFAULT_ALLOWED_BASE_URL_HOSTS = new Set(["api.x.ai"]);
 
 function parseIpv4(host: string): [number, number, number, number] | null {
   const parts = host.split(".").map((segment) => Number(segment));
@@ -68,6 +69,11 @@ export function sanitizeAndValidateBaseUrl(rawValue: string): string {
   const hostname = parsed.hostname.toLowerCase();
   if (isPrivateHost(hostname) && !allowPrivate) {
     throw new Error("Private-network GROK base URL requires GROK_ALLOW_PRIVATE_BASE_URL=1");
+  }
+
+  const allowCustomHost = process.env.GROK_ALLOW_CUSTOM_BASE_URL_HOST === "1";
+  if (!allowCustomHost && !DEFAULT_ALLOWED_BASE_URL_HOSTS.has(hostname)) {
+    throw new Error("Custom GROK base URL hosts require GROK_ALLOW_CUSTOM_BASE_URL_HOST=1");
   }
 
   return parsed.toString();
@@ -148,10 +154,14 @@ function writeJsonFileSyncAtomic(filePath: string, value: object): void {
   const dir = path.dirname(filePath);
   ensureSecureDirectorySync(dir);
 
-  const tempFilePath = `${filePath}.tmp`;
+  const tempDir = fsSync.mkdtempSync(path.join(dir, ".tmp-settings-"));
+  const tempFilePath = path.join(tempDir, `${path.basename(filePath)}.${process.pid}.tmp`);
   const serialized = JSON.stringify(value, null, 2);
-  fsSync.writeFileSync(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600 });
+  const handle = fsSync.openSync(tempFilePath, "wx", 0o600);
+  fsSync.writeFileSync(handle, serialized, { encoding: "utf-8" });
+  fsSync.closeSync(handle);
   fsSync.renameSync(tempFilePath, filePath);
+  fsSync.rmSync(tempDir, { recursive: true, force: true });
 }
 
 async function ensureSecureDirectory(dir: string): Promise<void> {
@@ -186,6 +196,7 @@ function sanitizeProjectSettings(value: unknown): Partial<ProjectSettings> {
 
 export class SettingsManager {
   private static instancesByWorkspace = new Map<string, SettingsManager>();
+  private static readonly MAX_WORKSPACE_INSTANCES = 64;
   private userSettingsPath: string;
   private projectSettingsPath: string;
   private sessionApiKey: string | undefined;
@@ -208,6 +219,12 @@ export class SettingsManager {
     }
 
     const next = new SettingsManager(canonicalRoot);
+    if (SettingsManager.instancesByWorkspace.size >= SettingsManager.MAX_WORKSPACE_INSTANCES) {
+      const oldestKey = SettingsManager.instancesByWorkspace.keys().next().value;
+      if (typeof oldestKey === "string") {
+        SettingsManager.instancesByWorkspace.delete(oldestKey);
+      }
+    }
     SettingsManager.instancesByWorkspace.set(canonicalRoot, next);
     return next;
   }
@@ -240,10 +257,12 @@ export class SettingsManager {
       const dir = path.dirname(filePath);
       await ensureSecureDirectory(dir);
 
-      const tempFilePath = `${filePath}.tmp`;
+      const tempDir = await fs.mkdtemp(path.join(dir, ".tmp-settings-"));
+      const tempFilePath = path.join(tempDir, `${path.basename(filePath)}.${process.pid}.tmp`);
       const serialized = JSON.stringify(value, null, 2);
-      await fs.writeFile(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600 });
+      await fs.writeFile(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600, flag: "wx" });
       await fs.move(tempFilePath, filePath, { overwrite: true });
+      await fs.remove(tempDir);
     });
 
     this.writeQueue = operation
