@@ -66,8 +66,9 @@ export async function runCommitAndPushFlow({
       toolResult: addResult,
     });
 
-    const diffResult = await agent.executeBashCommand("git diff --cached");
-    const commitPrompt = `Generate a concise, professional git commit message for these changes:\n\nGit Status:\n${initialStatusResult.output}\n\nGit Diff (staged changes):\n${diffResult.output || "No staged changes shown"}\n\nFollow conventional commit format (feat:, fix:, docs:, etc.) and keep it under 72 characters.\nRespond with ONLY the commit message, no additional text.`;
+    const stagedFilesResult = await agent.executeBashCommand("git diff --cached --name-only");
+    const stagedStatsResult = await agent.executeBashCommand("git diff --cached --stat");
+    const commitPrompt = `Generate a concise, professional git commit message for these changes:\n\nGit Status:\n${initialStatusResult.output}\n\nStaged Files:\n${stagedFilesResult.output || "No staged files shown"}\n\nDiff Summary:\n${stagedStatsResult.output || "No diff summary shown"}\n\nDo not include any secrets or file contents in the response.\nFollow conventional commit format (feat:, fix:, docs:, etc.) and keep it under 72 characters.\nRespond with ONLY the commit message, no additional text.`;
 
     let commitMessage = "";
     let streamingEntry: ChatEntry | null = null;

@@ -258,11 +258,14 @@ export class SettingsManager {
       await ensureSecureDirectory(dir);
 
       const tempDir = await fs.mkdtemp(path.join(dir, ".tmp-settings-"));
-      const tempFilePath = path.join(tempDir, `${path.basename(filePath)}.${process.pid}.tmp`);
-      const serialized = JSON.stringify(value, null, 2);
-      await fs.writeFile(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600, flag: "wx" });
-      await fs.move(tempFilePath, filePath, { overwrite: true });
-      await fs.remove(tempDir);
+      try {
+        const tempFilePath = path.join(tempDir, `${path.basename(filePath)}.${process.pid}.tmp`);
+        const serialized = JSON.stringify(value, null, 2);
+        await fs.writeFile(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600, flag: "wx" });
+        await fs.move(tempFilePath, filePath, { overwrite: true });
+      } finally {
+        await fs.remove(tempDir).catch(() => undefined);
+      }
     });
 
     this.writeQueue = operation

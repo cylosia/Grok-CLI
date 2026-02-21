@@ -4,7 +4,7 @@ const path = require('path');
 
 module.exports = [
   {
-    files: ['src/**/*.ts', 'src/**/*.tsx', 'test/**/*.ts'],
+    files: ['src/**/*.ts', 'src/**/*.tsx', 'test/**/*.ts', 'scripts/**/*.ts', '*.js'],
     ignores: ['dist/**', 'node_modules/**'],
     languageOptions: {
       parser: tsParser,
