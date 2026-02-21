@@ -43,7 +43,11 @@ export interface ConfirmationState {
 
 
 export function asMCPServerName(value: string): MCPServerName {
-  return value as MCPServerName;
+  const parsed = parseMCPServerName(value);
+  if (!parsed) {
+    throw new Error(`Invalid MCP server name: ${value}`);
+  }
+  return parsed;
 }
 
 const MCP_SERVER_NAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;

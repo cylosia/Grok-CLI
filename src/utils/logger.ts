@@ -55,7 +55,7 @@ function sanitize(value: unknown, depth = 0, seen = new WeakSet<object>()): unkn
     );
   }
   if (typeof value === "string") {
-    if (looksLikeSecretBlob(value) && value.length > 256) {
+    if (looksLikeSecretBlob(value) && value.length >= 32) {
       return REDACTED;
     }
     const scrubbed = scrubSensitiveString(value);

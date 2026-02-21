@@ -359,6 +359,7 @@ export class MCPManager {
           const timeoutError = new Error(`MCP tool call timed out after ${MCPManager.TOOL_CALL_TIMEOUT_MS}ms: ${name}`);
           this.callSafety.registerTimeout(callKey, serverName);
           this.startServerQuarantine(serverName);
+          this.inFlightToolCalls.delete(callKey);
           controller.abort(timeoutError);
           this.teardownServerWithTimeout(serverName)
             .then(() => {
@@ -399,6 +400,7 @@ export class MCPManager {
     } catch (error) {
       throw error;
     } finally {
+      this.inFlightToolCalls.delete(callKey);
       if (timeoutHandle) {
         clearTimeout(timeoutHandle);
       }
