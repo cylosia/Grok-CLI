@@ -103,14 +103,14 @@ export function createMCPCommand(): Command {
         if (transportType === 'stdio') {
           if (!options.command) {
             console.error(chalk.red('Error: --command is required for stdio transport'));
-            process.exit(1);
+            throw new Error('--command is required for stdio transport');
           }
         } else if (transportType === 'http' || transportType === 'sse') {
           console.error(chalk.red(`Error: ${transportType} transport is temporarily disabled until full duplex MCP support is implemented`));
-          process.exit(1);
+          throw new Error(`${transportType} transport is temporarily disabled until full duplex MCP support is implemented`);
         } else {
           console.error(chalk.red('Error: Transport type must be stdio, http, or sse'));
-          process.exit(1);
+          throw new Error('Transport type must be stdio, http, or sse');
         }
 
         // Parse environment variables
@@ -158,7 +158,7 @@ export function createMCPCommand(): Command {
 
       } catch (error: unknown) {
         console.error(chalk.red(`Error adding MCP server: ${error instanceof Error ? error.message : String(error)}`));
-        process.exit(1);
+        process.exitCode = 1;
       }
     });
 
@@ -173,7 +173,7 @@ export function createMCPCommand(): Command {
           config = JSON.parse(jsonConfig);
         } catch (_error) {
           console.error(chalk.red('Error: Invalid JSON configuration'));
-          process.exit(1);
+          throw new Error('Invalid JSON configuration');
         }
 
         const transportConfig = parseJsonServerConfig(config);
@@ -196,7 +196,7 @@ export function createMCPCommand(): Command {
 
       } catch (error: unknown) {
         console.error(chalk.red(`Error adding MCP server: ${error instanceof Error ? error.message : String(error)}`));
-        process.exit(1);
+        process.exitCode = 1;
       }
     });
 
@@ -213,7 +213,7 @@ export function createMCPCommand(): Command {
         console.log(chalk.green(`✓ Removed MCP server: ${name}`));
       } catch (error: unknown) {
         console.error(chalk.red(`Error removing MCP server: ${error instanceof Error ? error.message : String(error)}`));
-        process.exit(1);
+        process.exitCode = 1;
       }
     });
 
@@ -285,7 +285,7 @@ export function createMCPCommand(): Command {
         
         if (!serverConfig) {
           console.error(chalk.red(`Server ${name} not found`));
-          process.exit(1);
+          throw new Error(`Server ${name} not found`);
         }
 
         console.log(chalk.blue(`Testing connection to ${name}...`));
@@ -307,7 +307,7 @@ export function createMCPCommand(): Command {
 
       } catch (error: unknown) {
         console.error(chalk.red(`✗ Failed to connect to ${name}: ${error instanceof Error ? error.message : String(error)}`));
-        process.exit(1);
+        process.exitCode = 1;
       }
     });
 

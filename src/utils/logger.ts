@@ -58,8 +58,17 @@ function emit(level: "info" | "warn" | "error", message: string, context: LogCon
   let line: string;
   try {
     line = safeJsonStringify(payload);
-  } catch {
-    line = '{"level":"error","message":"logger-serialization-failed"}';
+  } catch (error) {
+    line = safeJsonStringify({
+      timestamp: new Date().toISOString(),
+      level: "error",
+      message: "logger-serialization-failed",
+      originalLevel: level,
+      originalMessage: message,
+      component: context.component,
+      correlationId: process.env.GROK_CORRELATION_ID ?? undefined,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
   if (level === "error") {
     console.error(line);

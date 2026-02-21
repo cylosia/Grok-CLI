@@ -81,7 +81,7 @@ function sanitizeUserSettings(value: unknown): Partial<UserSettings> {
 
 function writeJsonFileSyncAtomic(filePath: string, value: object): void {
   const dir = path.dirname(filePath);
-  fsSync.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  ensureSecureDirectorySync(dir);
 
   const tempFilePath = `${filePath}.tmp`;
   const serialized = JSON.stringify(value, null, 2);
@@ -95,6 +95,15 @@ async function ensureSecureDirectory(dir: string): Promise<void> {
   const currentMode = stats.mode & 0o777;
   if ((currentMode & 0o077) !== 0) {
     await fs.chmod(dir, 0o700);
+  }
+}
+
+function ensureSecureDirectorySync(dir: string): void {
+  fsSync.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const stats = fsSync.statSync(dir);
+  const currentMode = stats.mode & 0o777;
+  if ((currentMode & 0o077) !== 0) {
+    fsSync.chmodSync(dir, 0o700);
   }
 }
 
@@ -118,6 +127,7 @@ export class SettingsManager {
   private userSettingsCache: UserSettings | null = null;
   private projectSettingsCache: ProjectSettings | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
+  private pendingWriteCount = 0;
   private lastWriteError: Error | null = null;
 
   private constructor() {
@@ -145,15 +155,16 @@ export class SettingsManager {
   }
 
   private enqueueWrite(filePath: string, value: object): Promise<void> {
+    this.pendingWriteCount += 1;
     const operation = this.writeQueue.then(async () => {
-        const dir = path.dirname(filePath);
-        await ensureSecureDirectory(dir);
+      const dir = path.dirname(filePath);
+      await ensureSecureDirectory(dir);
 
-        const tempFilePath = `${filePath}.tmp`;
-        const serialized = JSON.stringify(value, null, 2);
-        await fs.writeFile(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600 });
-        await fs.move(tempFilePath, filePath, { overwrite: true });
-      });
+      const tempFilePath = `${filePath}.tmp`;
+      const serialized = JSON.stringify(value, null, 2);
+      await fs.writeFile(tempFilePath, serialized, { encoding: "utf-8", mode: 0o600 });
+      await fs.move(tempFilePath, filePath, { overwrite: true });
+    });
 
     this.writeQueue = operation
       .then(() => {
@@ -166,13 +177,16 @@ export class SettingsManager {
           filePath,
           error: error instanceof Error ? error.message : String(error),
         });
+      })
+      .finally(() => {
+        this.pendingWriteCount = Math.max(0, this.pendingWriteCount - 1);
       });
 
     return operation;
   }
 
   public loadUserSettings(forceReload = false): UserSettings {
-    if (this.userSettingsCache && !forceReload) {
+    if (this.userSettingsCache && (!forceReload || this.pendingWriteCount > 0)) {
       return { ...this.userSettingsCache };
     }
     try {
@@ -257,7 +271,7 @@ export class SettingsManager {
   }
 
   public loadProjectSettings(forceReload = false): ProjectSettings {
-    if (this.projectSettingsCache && !forceReload) {
+    if (this.projectSettingsCache && (!forceReload || this.pendingWriteCount > 0)) {
       return { ...this.projectSettingsCache };
     }
 
