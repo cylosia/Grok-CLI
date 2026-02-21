@@ -1,6 +1,8 @@
+import { logger } from "../utils/logger.js";
+
 export class MCPMarketplace {
   async search(query: string) {
-    console.log(`🔍 Searching MCP Marketplace for "${query}"...`);
+    logger.info("mcp-marketplace-search", { component: "mcp-marketplace", queryLength: query.length });
     return [
       { name: "github-tools", description: "GitHub integration", stars: 1240 },
       { name: "image-analysis", description: "Vision-powered tools", stars: 890 }
@@ -8,7 +10,7 @@ export class MCPMarketplace {
   }
 
   async install(name: string) {
-    console.log(`📦 Installing ${name}...`);
+    logger.info("mcp-marketplace-install", { component: "mcp-marketplace", packageName: name });
     // Full install flow with confirmation
   }
 }

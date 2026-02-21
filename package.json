@@ -13,7 +13,8 @@
     "audit:ci": "bash scripts/audit-ci.sh",
     "test:unit": "tsx --test test/**/*.test.ts",
     "lint": "eslint src test --ext .ts,.tsx",
-    "sbom:generate": "mkdir -p sbom && npm ls --all --json > sbom/npm-sbom.json"
+    "sbom:generate": "mkdir -p sbom && npm ls --all --json > sbom/npm-sbom.json",
+    "ci:install": "npm ci --ignore-scripts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",
