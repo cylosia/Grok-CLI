@@ -97,7 +97,11 @@ export function useEnhancedInput({
   const handleSubmit = useCallback(() => {
     if (input.trim()) {
       addToHistory(input);
-      onSubmit?.(input);
+      const result = onSubmit?.(input);
+      // Guard against unhandled rejection from async onSubmit handlers
+      if (result && typeof (result as Promise<unknown>).catch === "function") {
+        (result as Promise<unknown>).catch(() => { /* handled by caller */ });
+      }
       clearInput();
     }
   }, [input, addToHistory, onSubmit, clearInput]);
