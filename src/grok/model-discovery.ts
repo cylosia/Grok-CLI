@@ -33,7 +33,19 @@ export async function discoverModels(apiKey: string, baseURL?: string): Promise<
 
 export async function detectOllamaModels(baseURL = "http://127.0.0.1:11434"): Promise<ModelOption[]> {
   try {
-    const response = await axios.get<{ models: Array<{ name: string }> }>(`${baseURL}/api/tags`, {
+    const parsed = new URL(baseURL);
+    const host = parsed.hostname.toLowerCase();
+    const isLoopback = host === "localhost" || host === "127.0.0.1" || host === "::1";
+    if (!isLoopback) {
+      logger.warn("model-discovery-ollama-non-loopback-blocked", {
+        component: "model-discovery",
+        provider: "ollama",
+        host,
+      });
+      return [];
+    }
+
+    const response = await axios.get<{ models: Array<{ name: string }> }>(`${parsed.origin}/api/tags`, {
       timeout: 2000,
     });
 

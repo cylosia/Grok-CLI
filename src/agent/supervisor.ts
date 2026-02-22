@@ -98,14 +98,15 @@ export class AgentSupervisor extends EventEmitter {
   }
 
   private async getOrCreateWorker(type: Task["type"]): Promise<GrokAgent> {
-    if (!this.workers.has(type)) {
-      const worker = new GrokAgent(this.apiKey, undefined, undefined, undefined, false);
-      this.workers.set(type, worker);
+    // Dispose existing worker to prevent unbounded conversation history growth
+    const existing = this.workers.get(type);
+    if (existing) {
+      existing.dispose();
+      this.workers.delete(type);
     }
-    const worker = this.workers.get(type);
-    if (!worker) {
-      throw new Error(`Failed to create worker for type: ${type}`);
-    }
+
+    const worker = new GrokAgent(this.apiKey, undefined, undefined, undefined, false);
+    this.workers.set(type, worker);
     return worker;
   }
 }

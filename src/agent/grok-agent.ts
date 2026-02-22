@@ -203,6 +203,8 @@ export class GrokAgent extends EventEmitter {
 
   async *processUserMessageStream(message: string): AsyncGenerator<StreamingChunk> {
     this.concurrencyGate.tryAcquireImmediate();
+
+    try {
     const userEntry: ChatEntry = {
       type: "user",
       content: message,
@@ -218,7 +220,6 @@ export class GrokAgent extends EventEmitter {
     const tools: GrokTool[] = await getAllGrokTools();
     let toolRounds = 0;
 
-    try {
       while (toolRounds < this.maxToolRounds) {
         const assistantParts: string[] = [];
         let latestToolCalls: GrokToolCall[] = [];
@@ -439,5 +440,11 @@ export class GrokAgent extends EventEmitter {
     };
 
     return this.supervisor.executeTask(typedTask);
+  }
+
+  dispose(): void {
+    this.abortCurrentOperation();
+    this.tokenCounter.dispose();
+    this.removeAllListeners();
   }
 }

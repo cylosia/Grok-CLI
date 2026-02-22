@@ -283,8 +283,10 @@ function buildGrokTools(): GrokTool[] {
   return tools;
 }
 
-// Export dynamic tools array
-export const GROK_TOOLS: GrokTool[] = buildGrokTools();
+// Build tools array lazily on each call to pick up env changes
+export function getGrokTools(): GrokTool[] {
+  return buildGrokTools();
+}
 
 const MCP_MANAGER = new MCPManager();
 
@@ -341,5 +343,5 @@ export async function getAllGrokTools(): Promise<GrokTool[]> {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  return addMCPToolsToGrokTools(GROK_TOOLS);
+  return addMCPToolsToGrokTools(getGrokTools());
 }

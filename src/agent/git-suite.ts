@@ -1,20 +1,55 @@
 import { spawn } from "child_process";
+import { killProcessTree } from "../utils/process-tree.js";
+
+const MAX_OUTPUT_BYTES = 1_000_000;
+const GIT_TIMEOUT_MS = 30_000;
 
 function runGit(args: string[]): Promise<{ success: boolean; output: string }> {
   return new Promise((resolve) => {
-    const child = spawn("git", args, { shell: false });
+    const child = spawn("git", args, { shell: false, detached: process.platform !== "win32" });
     let stdout = "";
     let stderr = "";
+    let totalOutputBytes = 0;
+    let truncated = false;
+    let timedOut = false;
+
+    const appendChunk = (current: string, data: unknown): string => {
+      if (truncated) return current;
+      const chunk = String(data);
+      const chunkBytes = Buffer.byteLength(chunk, "utf8");
+      if (totalOutputBytes + chunkBytes <= MAX_OUTPUT_BYTES) {
+        totalOutputBytes += chunkBytes;
+        return current + chunk;
+      }
+      truncated = true;
+      totalOutputBytes = MAX_OUTPUT_BYTES;
+      return `${current}\n[output truncated after ${MAX_OUTPUT_BYTES} bytes]`;
+    };
+
+    let forceKillTimer: NodeJS.Timeout | undefined;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killProcessTree(child.pid ?? 0, "SIGTERM");
+      forceKillTimer = setTimeout(() => {
+        killProcessTree(child.pid ?? 0, "SIGKILL");
+      }, 1_500);
+    }, GIT_TIMEOUT_MS);
 
     child.stdout.on("data", (data) => {
-      stdout += String(data);
+      stdout = appendChunk(stdout, data);
     });
 
     child.stderr.on("data", (data) => {
-      stderr += String(data);
+      stderr = appendChunk(stderr, data);
     });
 
     child.on("close", (code) => {
+      clearTimeout(timer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (timedOut) {
+        resolve({ success: false, output: "git command timed out" });
+        return;
+      }
       if (code === 0) {
         resolve({ success: true, output: stdout.trim() || "OK" });
       } else {
@@ -23,6 +58,8 @@ function runGit(args: string[]): Promise<{ success: boolean; output: string }> {
     });
 
     child.on("error", (error) => {
+      clearTimeout(timer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
       const message = error instanceof Error ? error.message : String(error);
       resolve({ success: false, output: message });
     });
@@ -31,7 +68,7 @@ function runGit(args: string[]): Promise<{ success: boolean; output: string }> {
 
 export class GitSuite {
   async createCheckpoint(name: string): Promise<string> {
-    const add = await runGit(["add", "."]);
+    const add = await runGit(["add", "--", "."]);
     if (!add.success) {
       return `Checkpoint failed during stage: ${add.output}`;
     }
@@ -47,7 +84,14 @@ export class GitSuite {
       return "No files specified for selective commit";
     }
 
-    const add = await runGit(["add", ...files]);
+    // Reject paths that look like flags to prevent argument injection
+    for (const file of files) {
+      if (file.startsWith("-")) {
+        return `Refusing to stage path that starts with '-': ${file}`;
+      }
+    }
+
+    const add = await runGit(["add", "--", ...files]);
     if (!add.success) {
       return `Selective commit failed during stage: ${add.output}`;
     }

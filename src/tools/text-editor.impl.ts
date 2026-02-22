@@ -8,10 +8,18 @@ import { generateUnifiedDiff } from "./diff-utils.js";
 import { resolveSafePathWithinRoot } from "./path-safety.js";
 
 export class TextEditorTool {
+  private static readonly MAX_EDIT_HISTORY = 200;
   private editHistory: EditorCommand[] = [];
   private confirmationService = ConfirmationService.getInstance();
   private workspaceRoot = process.cwd();
 
+
+  private pushEdit(command: EditorCommand): void {
+    this.editHistory.push(command);
+    if (this.editHistory.length > TextEditorTool.MAX_EDIT_HISTORY) {
+      this.editHistory = this.editHistory.slice(-TextEditorTool.MAX_EDIT_HISTORY);
+    }
+  }
 
   private async ensureNotSymlink(targetPath: string): Promise<void> {
     const stats = await fs.lstat(targetPath);
@@ -165,13 +173,22 @@ export class TextEditorTool {
         }
       }
 
+      // Re-read file after confirmation to detect external modifications
+      const currentContent = await fs.readFile(resolvedPath, "utf-8");
+      if (currentContent !== content) {
+        return {
+          success: false,
+          error: "File was modified externally during confirmation; aborting to prevent data loss. Please retry.",
+        };
+      }
+
       const newContent = replaceAll
         ? content.split(oldStr).join(newStr)
         : content.replace(oldStr, newStr);
       await this.ensureNotSymlink(resolvedPath);
       await this.writeFileNoFollow(resolvedPath, newContent);
 
-      this.editHistory.push({
+      this.pushEdit({
         command: "str_replace",
         path: resolvedPath,
         old_str: oldStr,
@@ -236,7 +253,7 @@ export class TextEditorTool {
       await fs.ensureDir(dir);
       await this.createFileNoFollow(resolvedPath, content);
 
-      this.editHistory.push({
+      this.pushEdit({
         command: "create",
         path: resolvedPath,
         content,
@@ -332,7 +349,7 @@ export class TextEditorTool {
       await this.ensureNotSymlink(resolvedPath);
       await this.writeFileNoFollow(resolvedPath, newFileContent);
 
-      this.editHistory.push({
+      this.pushEdit({
         command: "str_replace",
         path: resolvedPath,
         old_str: `lines ${startLine}-${endLine}`,
@@ -409,7 +426,7 @@ export class TextEditorTool {
       await this.ensureNotSymlink(resolvedPath);
       await this.writeFileNoFollow(resolvedPath, newContent);
 
-      this.editHistory.push({
+      this.pushEdit({
         command: "insert",
         path: resolvedPath,
         insert_line: insertLine,
@@ -511,7 +528,7 @@ export class TextEditorTool {
     
     let functionStart = -1;
     for (let i = 0; i < contentLines.length; i++) {
-      if (contentLines[i].includes(`function ${functionName}`) && contentLines[i].includes('{')) {
+      if (contentLines[i]?.includes(`function ${functionName}`) && contentLines[i]?.includes('{')) {
         functionStart = i;
         break;
       }
@@ -523,7 +540,7 @@ export class TextEditorTool {
     let functionEnd = functionStart;
     
     for (let i = functionStart; i < contentLines.length; i++) {
-      const line = contentLines[i];
+      const line = contentLines[i] ?? '';
       for (const char of line) {
         if (char === '{') braceCount++;
         if (char === '}') braceCount--;

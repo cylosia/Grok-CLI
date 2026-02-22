@@ -22,7 +22,7 @@ export const PATH_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   pwd: new Set([]),
 };
 
-export const UNSAFE_SHELL_METACHARS = /[;&|><`\n\r]/;
+export const UNSAFE_SHELL_METACHARS = /[;&|><`$\n\r]/;
 export const MAX_OUTPUT_BYTES = 1_000_000;
 export const MAX_FIND_DEPTH = 8;
 export const MAX_SEARCH_MATCHES = 500;

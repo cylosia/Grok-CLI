@@ -37,7 +37,14 @@ export class ConversationState {
 
     if (this.messages.length > MAX_MESSAGE_ENTRIES) {
       const systemMessage = this.messages[0];
-      const tail = this.messages.slice(-(MAX_MESSAGE_ENTRIES - 1));
+      let tail = this.messages.slice(-(MAX_MESSAGE_ENTRIES - 1));
+
+      // Ensure we don't start with an orphaned tool response.
+      // A 'tool' message must be preceded by an 'assistant' message with tool_calls.
+      while (tail.length > 0 && tail[0]?.role === "tool") {
+        tail = tail.slice(1);
+      }
+
       this.messages = systemMessage ? [systemMessage, ...tail] : tail;
     }
   }

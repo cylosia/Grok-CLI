@@ -16,7 +16,7 @@ export class VisionEngine {
     this.repomap = new Repomap2();
   }
 
-  async analyzeScreenshot(imageBase64: string, prompt: string) {
+  async analyzeScreenshot(imageBase64: string, prompt: string): Promise<import("./grok-agent.js").ChatEntry[]> {
     logger.info("vision-analyze-screenshot", { component: "vision-engine", promptLength: prompt.length });
     const context = await this.repomap.getRelevantFiles(prompt, 5);
     const result = await this.agent.processUserMessage(`Analyze this image: ${prompt}\nRelevant files: ${context.join(", ")}\nImage data: ${imageBase64.slice(0, 100)}...`);

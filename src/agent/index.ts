@@ -88,23 +88,27 @@ export class Agent {
 
   private parseViewCommand(input: string): { path: string; range?: [number, number] } {
     const parts = input.split(' ');
-    const path = parts[1];
-    
+    const filePath = parts[1] || '';
+
     if (parts.length > 2) {
       const rangePart = parts[2];
-      if (rangePart.includes('-')) {
-        const [start, end] = rangePart.split('-').map(Number);
-        return { path, range: [start, end] };
+      if (rangePart && rangePart.includes('-')) {
+        const rangeParts = rangePart.split('-').map(Number);
+        const start = rangeParts[0];
+        const end = rangeParts[1];
+        if (start !== undefined && end !== undefined && !Number.isNaN(start) && !Number.isNaN(end) && start > 0 && end >= start) {
+          return { path: filePath, range: [start, end] };
+        }
       }
     }
-    
-    return { path };
+
+    return { path: filePath };
   }
 
   private parseStrReplaceCommand(input: string): { path: string; oldStr: string; newStr: string } | null {
     const match = input.match(/str_replace\s+(\S+)\s+"([^"]+)"\s+"([^"]*)"/);
-    if (!match) return null;
-    
+    if (!match || !match[1] || !match[2] || match[3] === undefined) return null;
+
     return {
       path: match[1],
       oldStr: match[2],
@@ -114,8 +118,8 @@ export class Agent {
 
   private parseCreateCommand(input: string): { path: string; content: string } | null {
     const match = input.match(/create\s+(\S+)\s+"([^"]*)"/);
-    if (!match) return null;
-    
+    if (!match || !match[1] || match[2] === undefined) return null;
+
     return {
       path: match[1],
       content: match[2]
@@ -124,8 +128,8 @@ export class Agent {
 
   private parseInsertCommand(input: string): { path: string; line: number; content: string } | null {
     const match = input.match(/insert\s+(\S+)\s+(\d+)\s+"([^"]*)"/);
-    if (!match) return null;
-    
+    if (!match || !match[1] || !match[2] || match[3] === undefined) return null;
+
     return {
       path: match[1],
       line: parseInt(match[2]),

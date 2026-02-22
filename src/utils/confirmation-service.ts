@@ -98,8 +98,12 @@ export class ConfirmationService extends EventEmitter implements ConfirmationSer
       this.emit("confirmation-requested", { ...options, requestId });
     });
 
-    const result = await promise;
-    clearTimeout(timeoutHandle);
+    let result: ConfirmationResult;
+    try {
+      result = await promise;
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
 
     if (result.dontAskAgain) {
       if (operationType === "file") {
@@ -121,7 +125,9 @@ export class ConfirmationService extends EventEmitter implements ConfirmationSer
     }
 
     const [request] = this.pendingQueue.splice(queueIndex, 1);
-    request.resolve(result);
+    if (request) {
+      request.resolve(result);
+    }
   }
 
   confirmOperation(confirmed: boolean, dontAskAgain?: boolean, requestId?: ConfirmationRequestId): void {

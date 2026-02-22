@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { logger } from './logger.js';
 
 const MAX_CUSTOM_INSTRUCTIONS_BYTES = 4096;
 const CONTROL_CHARS_PATTERN = /[\u0000-\u0008\u000B-\u001F\u007F]/g;
@@ -31,7 +32,10 @@ export function loadCustomInstructions(workingDirectory: string = process.cwd())
 
     return null;
   } catch (error) {
-    console.warn('Failed to load custom instructions:', error);
+    logger.warn('custom-instructions-load-failed', {
+      component: 'custom-instructions',
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }
