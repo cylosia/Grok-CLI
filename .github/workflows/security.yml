@@ -31,7 +31,7 @@ jobs:
       run: npm run audit:ci
 
     - name: Scan for Secrets
-      uses: trufflesecurity/trufflehog@5b44e79ad5237a42e82b8fe3c06345878a093d7e
+      uses: trufflesecurity/trufflehog@7c0734f987ad0bb30ee8da210773b800ee2016d3
       with:
         path: ./
         base: ${{ env.TRUFFLEHOG_BASE_REF }}
