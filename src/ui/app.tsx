@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { CommandPalette } from "./components/command-palette.js";
 import { AgentSupervisor } from "../agent/supervisor.js";
 import { loadRuntimeConfig } from "../utils/runtime-config.js";
@@ -5,7 +6,7 @@ import { loadRuntimeConfig } from "../utils/runtime-config.js";
 const runtimeConfig = loadRuntimeConfig();
 
 const App = () => {
-  const supervisor = new AgentSupervisor(runtimeConfig.grokApiKey);
+  const supervisor = useMemo(() => new AgentSupervisor(runtimeConfig.grokApiKey), []);
 
   return <CommandPalette supervisor={supervisor} onClose={() => {}} />;
 };

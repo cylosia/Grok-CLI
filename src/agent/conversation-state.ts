@@ -23,7 +23,7 @@ export class ConversationState {
   }
 
   getMessages(): GrokMessage[] {
-    return this.messages;
+    return [...this.messages];
   }
 
   getChatHistory(): ChatEntry[] {

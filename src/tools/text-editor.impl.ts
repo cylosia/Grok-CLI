@@ -500,6 +500,27 @@ export class TextEditorTool {
         case "create":
           if (lastEdit.path) {
             const safePath = await this.resolveSafePath(lastEdit.path);
+            // Require confirmation before deleting a file
+            const sessionFlags = this.confirmationService.getSessionFlags();
+            if (!sessionFlags.fileOperations && !sessionFlags.allOperations) {
+              const confirmResult = await this.confirmationService.requestConfirmation(
+                {
+                  operation: "Undo file creation (delete file)",
+                  filename: lastEdit.path,
+                  showVSCodeOpen: false,
+                  content: `This will delete: ${lastEdit.path}`,
+                },
+                "file"
+              );
+              if (!confirmResult.confirmed) {
+                // Re-push the edit so it can be undone again later
+                this.pushEdit(lastEdit);
+                return {
+                  success: false,
+                  error: confirmResult.feedback || "Undo cancelled by user",
+                };
+              }
+            }
             await this.ensureNotSymlink(safePath);
             await fs.remove(safePath);
           }
