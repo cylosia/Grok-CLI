@@ -36,9 +36,7 @@ export async function detectOllamaModels(baseURL = "http://127.0.0.1:11434"): Pr
     const parsed = new URL(baseURL);
     const host = parsed.hostname.toLowerCase();
     const isLoopback = host === "localhost" || host === "127.0.0.1" || host === "::1";
-    const ALLOWED_OLLAMA_PORTS = new Set(["11434"]);
-    const port = parsed.port || "11434";
-    if (!isLoopback || !ALLOWED_OLLAMA_PORTS.has(port)) {
+    if (!isLoopback) {
       logger.warn("model-discovery-ollama-non-loopback-blocked", {
         component: "model-discovery",
         provider: "ollama",

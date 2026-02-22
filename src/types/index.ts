@@ -62,16 +62,10 @@ export function parseMCPServerName(value: string): MCPServerName | null {
 
 
 export function asToolCallId(value: string): ToolCallId {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error("ToolCallId must be a non-empty string");
-  }
   return value as ToolCallId;
 }
 
 export function asConfirmationRequestId(value: string): ConfirmationRequestId {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error("ConfirmationRequestId must be a non-empty string");
-  }
   return value as ConfirmationRequestId;
 }
 

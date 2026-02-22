@@ -41,7 +41,7 @@ export default function ConfirmationDialog({
         return;
       }
       if (input && !key.ctrl && !key.meta) {
-        setFeedback((prev) => prev.length >= 2000 ? prev : prev + input);
+        setFeedback((prev) => prev + input);
       }
       return;
     }

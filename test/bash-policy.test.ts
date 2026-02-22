@@ -65,7 +65,5 @@ test("GIT_PATH_BEARING_FLAGS includes known dangerous flags", () => {
   assert.equal(GIT_PATH_BEARING_FLAGS.has("-C"), true);
   assert.equal(GIT_PATH_BEARING_FLAGS.has("--git-dir"), true);
   assert.equal(GIT_PATH_BEARING_FLAGS.has("--work-tree"), true);
-  // --exec-path is intentionally excluded: it is in BLOCKED_FLAGS_BY_COMMAND.git,
-  // so it is rejected before path validation runs (dead code elimination).
-  assert.equal(GIT_PATH_BEARING_FLAGS.has("--exec-path"), false);
+  assert.equal(GIT_PATH_BEARING_FLAGS.has("--exec-path"), true);
 });

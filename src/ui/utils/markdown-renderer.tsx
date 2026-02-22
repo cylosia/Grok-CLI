@@ -11,9 +11,10 @@ marked.setOptions({
 
 export function MarkdownRenderer({ content }: { content: string }) {
   try {
-    // Force synchronous parsing; marked.parse can return Promise in async mode
-    const result = marked.parse(content, { async: false }) as string;
-    const rendered = sanitizeTerminalText(result);
+    // Use marked.parse for synchronous parsing
+    const result = marked.parse(content);
+    // Handle both sync and async results, then sanitize terminal escape sequences
+    const rendered = typeof result === 'string' ? sanitizeTerminalText(result) : sanitizeTerminalText(content);
     return <Text>{rendered}</Text>;
   } catch (error) {
     // Fallback to plain text if markdown parsing fails

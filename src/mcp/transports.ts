@@ -31,15 +31,12 @@ function isAllowedMcpEnvKey(key: string): boolean {
   return MCP_ENV_ALLOWLIST.has(key);
 }
 
-const SENSITIVE_ENV_PATTERN = /(KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH)/i;
-
 function readPassthroughEnv(): Record<string, string> {
   const configured = process.env.GROK_MCP_PASSTHROUGH_ENV ?? "";
   const extraKeys = configured
     .split(",")
     .map((entry) => entry.trim())
-    .filter((entry) => /^[A-Z0-9_]{1,64}$/i.test(entry))
-    .filter((entry) => !SENSITIVE_ENV_PATTERN.test(entry));
+    .filter((entry) => /^[A-Z0-9_]{1,64}$/i.test(entry));
 
   const allowedKeys = new Set<string>([...DEFAULT_PASSTHROUGH_ENV_KEYS, ...extraKeys]);
   return [...allowedKeys].reduce<Record<string, string>>((acc, key) => {
