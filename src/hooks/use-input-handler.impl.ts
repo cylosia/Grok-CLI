@@ -134,7 +134,7 @@ export function useInputHandler({
             selectedCommandIndex,
             filteredSuggestions.length - 1
           );
-          const selectedCommand = filteredSuggestions[safeIndex];
+          const selectedCommand = filteredSuggestions[safeIndex]!;
           const newInput = selectedCommand.command + " ";
           setInput(newInput);
           setCursorPosition(newInput.length);
@@ -158,7 +158,7 @@ export function useInputHandler({
         return true;
       }
       if (key.tab || key.return) {
-        const selectedModel = availableModels[selectedModelIndex];
+        const selectedModel = availableModels[selectedModelIndex]!;
         agent.setModel(selectedModel.model);
         updateCurrentModel(selectedModel.model).catch((error: unknown) => {
           logger.warn("model-persist-failed", {
@@ -328,7 +328,7 @@ Examples:
     }
 
     if (trimmedInput.startsWith("/models ")) {
-      const modelArg = trimmedInput.split(" ")[1];
+      const modelArg = trimmedInput.split(" ")[1] ?? "";
       const modelNames = availableModels.map((m) => m.model);
 
       if (modelNames.includes(modelArg)) {
@@ -381,7 +381,7 @@ Available models: ${modelNames.join(", ")}`,
       "mkdir",
       "touch",
     ];
-    const firstWord = trimmedInput.split(" ")[0];
+    const firstWord = trimmedInput.split(" ")[0] ?? "";
 
     if (directBashCommands.includes(firstWord)) {
       const userEntry: ChatEntry = {

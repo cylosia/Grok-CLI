@@ -46,7 +46,7 @@ export class BashTool {
       return { success: false, error: 'Command cannot be empty' };
     }
 
-    const [cmd, ...args] = tokens;
+    const [cmd, ...args] = tokens as [string, ...string[]];
 
     if (BLOCKED_COMMANDS.has(cmd)) {
       return { success: false, error: `Command is blocked by policy: ${cmd}` };
@@ -185,7 +185,7 @@ export class BashTool {
           break;
         }
 
-        const [normalizedFlag] = arg.split("=");
+        const normalizedFlag = arg.split("=")[0]!;
         const inlineValue = arg.includes("=") ? arg.split("=").slice(1).join("=") : undefined;
         if (GIT_PATH_BEARING_FLAGS.has(normalizedFlag) || arg === "-C" || arg.startsWith("-C")) {
           const gitShortInline = arg.startsWith("-C") && arg.length > 2 && !arg.includes("=") ? arg.slice(2) : undefined;
@@ -205,7 +205,7 @@ export class BashTool {
       if (!arg) continue;
 
       if (arg.startsWith("-")) {
-        let normalized = arg.split("=")[0];
+        let normalized = arg.split("=")[0]!;
         let inlineValue = arg.includes("=") ? arg.split("=").slice(1).join("=") : undefined;
         if (!pathFlags.has(normalized)) {
           for (const candidate of pathFlags) {
@@ -403,7 +403,7 @@ export class BashTool {
         break;
       }
 
-      const [normalized] = arg.split('=');
+      const normalized = arg.split('=')[0]!;
       const explicitInline = arg.includes('=') ? arg.split('=').slice(1).join('=') : undefined;
       if (GIT_PATH_BEARING_FLAGS.has(normalized) || arg === '-C' || arg.startsWith('-C')) {
         const inlineValue = explicitInline ?? (arg.startsWith('-C') && arg.length > 2 ? arg.slice(2) : undefined);
@@ -441,7 +441,7 @@ export class BashTool {
       }
 
       if (arg.startsWith('-')) {
-        let normalized = arg.split('=')[0];
+        let normalized = arg.split('=')[0]!;
         let inlineValue = arg.includes('=') ? arg.split('=').slice(1).join('=') : undefined;
 
         if (!pathFlags.has(normalized)) {
@@ -497,7 +497,7 @@ export class BashTool {
       if (!arg) continue;
 
       if (arg.startsWith('-')) {
-        let normalizedFlag = arg.split('=')[0];
+        let normalizedFlag = arg.split('=')[0]!;
         let inlineValue = arg.includes('=') ? arg.split('=').slice(1).join('=') : undefined;
 
         if (!pathFlags.has(normalizedFlag)) {
@@ -545,7 +545,7 @@ export class BashTool {
         break;
       }
 
-      const [normalizedFlag] = arg.split('=');
+      const normalizedFlag = arg.split('=')[0]!;
       const explicitInline = arg.includes('=') ? arg.split('=').slice(1).join('=') : undefined;
       if (GIT_PATH_BEARING_FLAGS.has(normalizedFlag) || arg === '-C' || arg.startsWith('-C')) {
         const inlineValue = explicitInline ?? (arg.startsWith('-C') && arg.length > 2 ? arg.slice(2) : undefined);
@@ -633,7 +633,7 @@ export class BashTool {
     const blocked = BLOCKED_FLAGS_BY_COMMAND[command];
     if (blocked) {
       for (const arg of args) {
-        const normalized = arg.split('=')[0];
+        const normalized = arg.split('=')[0]!;
         if (blocked.has(normalized)) {
           return {
             success: false,
@@ -645,7 +645,7 @@ export class BashTool {
 
     const readNumericFlagValue = (flagName: string): number | undefined => {
       for (let index = 0; index < args.length; index += 1) {
-        const arg = args[index];
+        const arg = args[index]!;
         if (arg === flagName) {
           const nextValue = args[index + 1];
           if (!nextValue) {
@@ -687,7 +687,7 @@ export class BashTool {
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index];
       if (!arg) continue;
-      const normalized = arg.split('=')[0];
+      const normalized = arg.split('=')[0]!;
       const flagConsumesNext = GIT_PATH_BEARING_FLAGS.has(normalized)
         && !arg.includes('=')
         && !(arg.startsWith('-C') && arg.length > 2);

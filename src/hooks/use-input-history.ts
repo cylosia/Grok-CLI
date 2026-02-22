@@ -37,7 +37,7 @@ export function useInputHistory(): InputHistoryHook {
       if (currentIndex === -1) {
         return null;
       } else if (currentIndex === history.length - 1) {
-        newIndex = -1;
+        setCurrentIndex(-1);
         return originalInput;
       } else {
         newIndex = Math.min(history.length - 1, currentIndex + 1);
@@ -45,7 +45,7 @@ export function useInputHistory(): InputHistoryHook {
     }
 
     setCurrentIndex(newIndex);
-    return newIndex === -1 ? originalInput : history[newIndex];
+    return newIndex === -1 ? originalInput : history[newIndex] ?? null;
   }, [history, currentIndex, originalInput]);
 
   const getCurrentHistoryIndex = useCallback(() => currentIndex, [currentIndex]);

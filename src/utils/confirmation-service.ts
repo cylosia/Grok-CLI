@@ -66,11 +66,12 @@ export class ConfirmationService extends EventEmitter implements ConfirmationSer
       return { confirmed: true };
     }
 
-    if (options.showVSCodeOpen) {
+    let showVSCodeOpen = options.showVSCodeOpen;
+    if (showVSCodeOpen) {
       try {
         await this.openInVSCode(options.filename);
       } catch {
-        options.showVSCodeOpen = false;
+        showVSCodeOpen = false;
       }
     }
 
@@ -95,7 +96,7 @@ export class ConfirmationService extends EventEmitter implements ConfirmationSer
     this.pendingQueue.push({ id: requestId, resolve: resolveFn, promise });
 
     setImmediate(() => {
-      this.emit("confirmation-requested", { ...options, requestId });
+      this.emit("confirmation-requested", { ...options, showVSCodeOpen, requestId });
     });
 
     let result: ConfirmationResult;

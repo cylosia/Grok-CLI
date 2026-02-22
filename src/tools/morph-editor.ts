@@ -104,8 +104,17 @@ export class MorphEditorTool {
         }
       }
 
+      // Re-read file after confirmation to detect external modifications
+      const currentContent = await fs.readFile(resolvedPath, "utf-8");
+      if (currentContent !== initialCode) {
+        return {
+          success: false,
+          error: "File was modified externally during confirmation; aborting to prevent data loss. Please retry.",
+        };
+      }
+
       // Call Morph Fast Apply API
-      const mergedCode = await this.callMorphApply(instructions, initialCode, codeEdit);
+      const mergedCode = await this.callMorphApply(instructions, currentContent, codeEdit);
 
       // Write the merged code back to file (symlink-safe)
       await this.ensureNotSymlink(resolvedPath);

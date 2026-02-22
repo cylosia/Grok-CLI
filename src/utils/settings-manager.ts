@@ -11,11 +11,23 @@ const PRIVATE_HOST_PATTERN = /(^localhost$|\.local$)/i;
 const DEFAULT_ALLOWED_BASE_URL_HOSTS = new Set(["api.x.ai"]);
 
 function parseIpv4(host: string): [number, number, number, number] | null {
-  const parts = host.split(".").map((segment) => Number(segment));
-  if (parts.length !== 4 || parts.some((value) => Number.isNaN(value) || value < 0 || value > 255)) {
+  const parts = host.split(".");
+  if (parts.length !== 4) {
     return null;
   }
-  return [parts[0], parts[1], parts[2], parts[3]];
+  const nums: number[] = [];
+  for (const segment of parts) {
+    // Reject non-decimal representations (hex, octal, empty, whitespace)
+    if (!/^\d{1,3}$/.test(segment)) {
+      return null;
+    }
+    const value = Number(segment);
+    if (value < 0 || value > 255) {
+      return null;
+    }
+    nums.push(value);
+  }
+  return [nums[0]!, nums[1]!, nums[2]!, nums[3]!];
 }
 
 function isPrivateIpv4(host: string): boolean {
