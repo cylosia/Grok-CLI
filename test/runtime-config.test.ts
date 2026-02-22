@@ -5,7 +5,7 @@ import { loadRuntimeConfig } from "../src/utils/runtime-config.js";
 test("loadRuntimeConfig rejects unsafe GROK_BASE_URL values", () => {
   const previousKey = process.env.GROK_API_KEY;
   const previousBase = process.env.GROK_BASE_URL;
-  process.env.GROK_API_KEY = "test-key";
+  process.env.GROK_API_KEY = "xai-test-dummy-key-not-real-0000000000";
   process.env.GROK_BASE_URL = "http://127.0.0.1:8080";
 
   try {
@@ -27,7 +27,7 @@ test("loadRuntimeConfig rejects unsafe GROK_BASE_URL values", () => {
 test("loadRuntimeConfig accepts safe HTTPS GROK_BASE_URL values", () => {
   const previousKey = process.env.GROK_API_KEY;
   const previousBase = process.env.GROK_BASE_URL;
-  process.env.GROK_API_KEY = "test-key";
+  process.env.GROK_API_KEY = "xai-test-dummy-key-not-real-0000000000";
   process.env.GROK_BASE_URL = " https://api.x.ai/v1 ";
 
   try {

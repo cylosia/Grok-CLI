@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GrokClient } from "../src/grok/client.js";
+import { TEST_DUMMY_API_KEY } from "./test-constants.js";
 
 interface StreamChunk {
   choices: Array<{ delta?: { tool_calls?: Array<{ index: number; id?: string; function?: { arguments?: string } }> } }>;
 }
 
 test("grok client rejects oversized streamed tool arguments", async () => {
-  const client = new GrokClient("test-key");
+  const client = new GrokClient(TEST_DUMMY_API_KEY);
 
   const internal = client as unknown as {
     client: {
@@ -53,7 +54,7 @@ test("grok client rejects oversized streamed tool arguments", async () => {
 
 
 test("grok client sets idempotency header on chat requests", async () => {
-  const client = new GrokClient("test-key");
+  const client = new GrokClient(TEST_DUMMY_API_KEY);
   let capturedHeaders: Record<string, string> | undefined;
 
   const internal = client as unknown as {

@@ -1,0 +1,13 @@
+# Default code owners for all files
+* @cylosia
+
+# Security-critical paths require explicit review
+src/tools/bash-policy.ts @cylosia
+src/tools/bash-tokenizer.ts @cylosia
+src/tools/bash.ts @cylosia
+src/tools/path-safety.ts @cylosia
+src/mcp/url-policy.ts @cylosia
+src/mcp/transports.ts @cylosia
+src/utils/confirmation-service.ts @cylosia
+src/utils/custom-instructions.ts @cylosia
+.github/workflows/ @cylosia

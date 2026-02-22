@@ -36,6 +36,7 @@ function isPrivateIpv4(host: string): boolean {
   }
 
   const [a, b] = parts;
+  if (a === 0) return true;
   if (a === 10 || a === 127) return true;
   if (a === 192 && b === 168) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
@@ -60,13 +61,18 @@ function isPrivateIpv6(host: string): boolean {
     || normalized.startsWith("fec0:");
 }
 
+function isPrivateIpv6Unscoped(host: string): boolean {
+  const withoutZone = host.includes("%") ? host.slice(0, host.indexOf("%")) : host;
+  return isPrivateIpv6(withoutZone);
+}
+
 function isPrivateHost(host: string): boolean {
-  const normalized = host.toLowerCase();
-  if (normalized === "localhost" || normalized.endsWith(".local")) {
+  const normalized = host.toLowerCase().replace(/\.+$/, "");
+  if (normalized === "localhost" || normalized.endsWith(".local") || normalized.endsWith(".localhost")) {
     return true;
   }
   if (normalized.includes(":")) {
-    return isPrivateIpv6(normalized);
+    return isPrivateIpv6Unscoped(normalized);
   }
   return isPrivateIpv4(normalized);
 }

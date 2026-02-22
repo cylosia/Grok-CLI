@@ -3,8 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "lib": [
-      "ES2022",
-      "DOM"
+      "ES2022"
     ],
     "outDir": "./dist",
     "rootDir": "./src",
@@ -15,13 +14,14 @@
     "skipLibCheck": false,
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
-    "sourceMap": true,
+    "sourceMap": false,
     "resolveJsonModule": true,
     "jsx": "react-jsx",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
     "types": [
       "node"
     ]

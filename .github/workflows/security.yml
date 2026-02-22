@@ -11,25 +11,28 @@ on:
 jobs:
   security_scan:
     runs-on: ubuntu-latest
+    env:
+      TRUFFLEHOG_BASE_REF: ${{ github.event.pull_request.base.ref || github.ref }}
+      TRUFFLEHOG_HEAD_REF: ${{ github.event.pull_request.head.ref || github.sha }}
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Use Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
         cache: 'npm'
 
     - name: Install Dependencies
-      run: npm ci
+      run: npm ci --ignore-scripts
 
     - name: Run Security Audit
-      run: npm audit --audit-level=high
+      run: npm run audit:ci
 
     - name: Scan for Secrets
-      uses: trufflesecurity/trufflehog@v3.90.1
+      uses: trufflesecurity/trufflehog@5b44e79ad5237a42e82b8fe3c06345878a093d7e
       with:
         path: ./
-        baseRef: ${{ github.event.pull_request.base.ref || github.ref }}
-        headRef: ${{ github.event.pull_request.head.ref || github.sha }}
+        base: ${{ env.TRUFFLEHOG_BASE_REF }}
+        head: ${{ env.TRUFFLEHOG_HEAD_REF }}
