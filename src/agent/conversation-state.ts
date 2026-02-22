@@ -22,7 +22,7 @@ export class ConversationState {
     this.trimBuffers();
   }
 
-  getMessages(): GrokMessage[] {
+  getMessages(): readonly GrokMessage[] {
     return this.messages;
   }
 
@@ -42,6 +42,20 @@ export class ConversationState {
       // Ensure we don't start with an orphaned tool response.
       // A 'tool' message must be preceded by an 'assistant' message with tool_calls.
       while (tail.length > 0 && tail[0]?.role === "tool") {
+        tail = tail.slice(1);
+      }
+
+      // Ensure we don't start with an assistant message containing tool_calls
+      // whose tool responses were trimmed away (API requires every tool_call
+      // to have a matching tool response immediately after).
+      while (
+        tail.length > 0
+        && tail[0]?.role === "assistant"
+        && tail[0].tool_calls
+        && Array.isArray(tail[0].tool_calls)
+        && tail[0].tool_calls.length > 0
+        && (tail.length < 2 || tail[1]?.role !== "tool")
+      ) {
         tail = tail.slice(1);
       }
 

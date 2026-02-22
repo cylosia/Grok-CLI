@@ -30,10 +30,12 @@ export class ConcurrencyGate {
     if (this.hasPendingOperation || this.isProcessing) {
       throw new Error("Agent is already processing another request");
     }
+    this.hasPendingOperation = true;
     this.isProcessing = true;
   }
 
   releaseImmediate(): void {
     this.isProcessing = false;
+    this.hasPendingOperation = false;
   }
 }

@@ -7,7 +7,7 @@ import { logger } from "./logger.js";
 const SETTINGS_VERSION = 4;
 const MAX_SETTINGS_FILE_BYTES = 1_000_000;
 const BLOCKED_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-const PRIVATE_HOST_PATTERN = /(^localhost$|\.local$)/i;
+const PRIVATE_HOST_PATTERN = /(^localhost$|\.local$|\.localhost$)/i;
 const DEFAULT_ALLOWED_BASE_URL_HOSTS = new Set(["api.x.ai"]);
 
 function parseIpv4(host: string): [number, number, number, number] | null {
@@ -35,17 +35,25 @@ function isPrivateIpv4(host: string): boolean {
   if (!parsed) {
     return false;
   }
-  const [a, b] = parsed;
-  return a === 10
-    || a === 127
-    || (a === 192 && b === 168)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 169 && b === 254);
+  const [a, b, c] = parsed;
+  return a === 0                                       // 0.0.0.0/8 (current network)
+    || a === 10                                        // 10.0.0.0/8
+    || a === 127                                       // 127.0.0.0/8
+    || (a === 192 && b === 168)                        // 192.168.0.0/16
+    || (a === 172 && b >= 16 && b <= 31)               // 172.16.0.0/12
+    || (a === 169 && b === 254)                        // 169.254.0.0/16 (link-local)
+    || (a === 100 && b >= 64 && b <= 127)              // 100.64.0.0/10 (CGNAT / shared)
+    || (a === 192 && b === 0 && c === 0)               // 192.0.0.0/24 (IETF protocol)
+    || (a === 192 && b === 0 && c === 2)               // 192.0.2.0/24 (TEST-NET-1)
+    || (a === 198 && (b === 18 || b === 19))           // 198.18.0.0/15 (benchmarking)
+    || (a === 198 && b === 51 && c === 100)            // 198.51.100.0/24 (TEST-NET-2)
+    || (a === 203 && b === 0 && c === 113)             // 203.0.113.0/24 (TEST-NET-3)
+    || a >= 224;                                       // 224.0.0.0+ (multicast + reserved + broadcast)
 }
 
 function isPrivateIpv6(host: string): boolean {
   const normalized = host.toLowerCase();
-  if (normalized === "::1") {
+  if (normalized === "::1" || normalized === "::") {
     return true;
   }
   if (normalized.startsWith("::ffff:")) {
@@ -53,7 +61,8 @@ function isPrivateIpv6(host: string): boolean {
   }
   return normalized.startsWith("fc")
     || normalized.startsWith("fd")
-    || normalized.startsWith("fe80:");
+    || normalized.startsWith("fe80:")
+    || normalized.startsWith("fec0:");
 }
 
 function isPrivateHost(hostname: string): boolean {

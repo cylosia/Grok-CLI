@@ -38,6 +38,7 @@ interface ConnectedServer {
 export class MCPManager {
   private servers = new Map<MCPServerName, ConnectedServer>();
   private initialized = false;
+  private initializationPromise: Promise<void> | null = null;
   private failedInitializationCooldownUntil = new Map<MCPServerName, number>();
   private static readonly TOOL_CALL_TIMEOUT_MS = 30_000;
   private static readonly INIT_FAILURE_COOLDOWN_MS = 60_000;
@@ -152,6 +153,21 @@ export class MCPManager {
       return;
     }
 
+    // Guard against concurrent callers racing through initialization
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+      return;
+    }
+
+    this.initializationPromise = this.doInitializeServers();
+    try {
+      await this.initializationPromise;
+    } finally {
+      this.initializationPromise = null;
+    }
+  }
+
+  private async doInitializeServers(): Promise<void> {
     const config = loadMCPConfig();
     const now = Date.now();
     let hadFailures = false;
