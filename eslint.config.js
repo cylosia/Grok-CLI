@@ -34,6 +34,8 @@ module.exports = [
       'no-implied-eval': 'error',
       'no-new-func': 'error',
       'no-script-url': 'error',
+      'eqeqeq': ['error', 'always'],
+      'no-prototype-builtins': 'error',
       'max-lines': ['warn', { max: 500, skipBlankLines: true, skipComments: true }],
     },
   },

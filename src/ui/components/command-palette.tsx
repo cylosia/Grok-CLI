@@ -17,7 +17,7 @@ export const CommandPalette = ({ supervisor, onClose }: CommandPaletteProps) => 
   const [error, setError] = useState<string | null>(null);
 
   useInput((input, key) => {
-    if (key.escape || key.ctrl && input === "c") onClose();
+    if (key.escape || (key.ctrl && input === "c")) { onClose(); return; }
     if (key.backspace || key.delete) {
       setQuery((prev) => prev.slice(0, -1));
       return;

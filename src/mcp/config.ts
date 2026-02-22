@@ -111,7 +111,14 @@ export async function removeMCPServer(serverName: string): Promise<void> {
 export function getTrustedMCPServerFingerprints(): Record<string, string> {
   const manager = getSettingsManager();
   const userSettings = manager.loadUserSettings();
-  return userSettings.trustedMcpServers || {};
+  const raw = userSettings.trustedMcpServers || {};
+  const safe = Object.create(null) as Record<string, string>;
+  for (const [key, value] of Object.entries(raw)) {
+    if (!BLOCKED_CONFIG_KEYS.has(key) && typeof value === "string") {
+      safe[key] = value;
+    }
+  }
+  return safe;
 }
 
 export async function setTrustedMCPServerFingerprint(serverName: string, fingerprint: string): Promise<void> {

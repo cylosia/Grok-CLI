@@ -1,4 +1,7 @@
 import { ToolResult } from '../types/index.js';
+import { sanitizeTerminalText } from '../utils/terminal-sanitize.js';
+
+const MAX_TODO_ITEMS = 100;
 
 export type TodoStatus = 'pending' | 'in_progress' | 'completed';
 export type TodoPriority = 'high' | 'medium' | 'low';
@@ -67,7 +70,8 @@ export class TodoTool {
       const strikethrough = todo.status === 'completed' ? '\x1b[9m' : '';
       const indent = index === 0 ? '' : '  ';
 
-      output += `${indent}${statusColor}${strikethrough}${checkbox} ${todo.content}${reset}\n`;
+      const safeContent = sanitizeTerminalText(todo.content);
+      output += `${indent}${statusColor}${strikethrough}${checkbox} ${safeContent}${reset}\n`;
     });
 
     return output;
@@ -109,7 +113,10 @@ export class TodoTool {
         ids.add(todo.id);
       }
 
-      this.todos = todos;
+      if (todos.length > MAX_TODO_ITEMS) {
+        return { success: false, error: `Too many todo items (max ${MAX_TODO_ITEMS})` };
+      }
+      this.todos = todos.map(t => ({ ...t }));
 
       return {
         success: true,

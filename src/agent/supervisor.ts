@@ -122,4 +122,13 @@ export class AgentSupervisor extends EventEmitter {
     this.workers.set(type, worker);
     return worker;
   }
+
+  dispose(): void {
+    for (const [, worker] of this.workers) {
+      worker.dispose();
+    }
+    this.workers.clear();
+    this.activeTasks.clear();
+    this.removeAllListeners();
+  }
 }

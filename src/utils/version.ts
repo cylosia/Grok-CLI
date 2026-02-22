@@ -11,9 +11,12 @@ export function getCliVersion(): string {
   try {
     const packageJsonPath = new URL("../../package.json", import.meta.url);
     const raw = readFileSync(packageJsonPath, "utf-8");
-    const parsed = JSON.parse(raw) as { version?: unknown };
-    if (typeof parsed.version === "string" && parsed.version.trim().length > 0) {
-      return parsed.version.trim();
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && "version" in parsed) {
+      const version = (parsed as Record<string, unknown>).version;
+      if (typeof version === "string" && version.trim().length > 0) {
+        return version.trim();
+      }
     }
   } catch {
     // ignore and fall back

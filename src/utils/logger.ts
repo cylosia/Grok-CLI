@@ -7,10 +7,11 @@ export interface LogContext {
 const REDACTED = "[REDACTED]";
 const SECRET_KEY_PATTERN = /(api[-_]?key|token|authorization|password|secret|cookie|session)/i;
 const SECRET_VALUE_PATTERNS = [
-  /-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/i,
-  /\b(?:sk|rk|pk)_[A-Za-z0-9]{16,}\b/,
-  /\bBearer\s+[A-Za-z0-9._\-~+/]+=*\b/i,
-  /\b[A-Fa-f0-9]{64,}\b/,
+  /-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/gi,
+  /\b(?:sk|rk|pk)_[A-Za-z0-9]{16,}\b/g,
+  /\bBearer\s+[A-Za-z0-9._\-~+/]+=*\b/gi,
+  /\bxai-[A-Za-z0-9_\-]{16,}\b/g,
+  /\b[A-Fa-f0-9]{64,256}\b/g,
 ];
 
 function looksLikeSecretBlob(value: string): boolean {
@@ -28,6 +29,7 @@ function looksLikeSecretBlob(value: string): boolean {
 function scrubSensitiveString(value: string): string {
   let output = value;
   for (const pattern of SECRET_VALUE_PATTERNS) {
+    pattern.lastIndex = 0;
     output = output.replace(pattern, REDACTED);
   }
   return output;

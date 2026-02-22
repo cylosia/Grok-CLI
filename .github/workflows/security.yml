@@ -14,10 +14,6 @@ permissions:
 jobs:
   security_scan:
     runs-on: ubuntu-latest
-    env:
-      TRUFFLEHOG_BASE_REF: ${{ github.event.pull_request.base.ref || github.ref }}
-      TRUFFLEHOG_HEAD_REF: ${{ github.event.pull_request.head.ref || github.sha }}
-
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -33,9 +29,24 @@ jobs:
     - name: Run Security Audit
       run: npm run audit:ci
 
+    - name: Sanitize ref inputs
+      id: refs
+      shell: bash
+      run: |
+        sanitize_ref() {
+          local ref="$1"
+          if [[ "$ref" =~ ^[a-zA-Z0-9/_.\-]+$ ]]; then
+            echo "$ref"
+          else
+            echo "${{ github.sha }}"
+          fi
+        }
+        echo "base=$(sanitize_ref '${{ github.event.pull_request.base.ref || github.ref }}')" >> "$GITHUB_OUTPUT"
+        echo "head=$(sanitize_ref '${{ github.event.pull_request.head.ref || github.sha }}')" >> "$GITHUB_OUTPUT"
+
     - name: Scan for Secrets
-      uses: trufflesecurity/trufflehog@7c0734f987ad0bb30ee8da210773b800ee2016d3
+      uses: trufflesecurity/trufflehog@7c0734f987ad0bb30ee8da210773b800ee2016d3 # v3
       with:
         path: ./
-        base: ${{ env.TRUFFLEHOG_BASE_REF }}
-        head: ${{ env.TRUFFLEHOG_HEAD_REF }}
+        base: ${{ steps.refs.outputs.base }}
+        head: ${{ steps.refs.outputs.head }}

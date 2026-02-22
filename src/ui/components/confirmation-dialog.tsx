@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { DiffRenderer } from "./diff-renderer.js";
+import { sanitizeTerminalText } from "../../utils/terminal-sanitize.js";
 
 interface ConfirmationDialogProps {
   operation: string;
@@ -114,7 +115,7 @@ export default function ConfirmationDialog({
           <Text color="magenta">⏺</Text>
           <Text color="white">
             {" "}
-            {operation}({filename})
+            {sanitizeTerminalText(operation)}({filename ? sanitizeTerminalText(filename) : ""})
           </Text>
         </Box>
       </Box>

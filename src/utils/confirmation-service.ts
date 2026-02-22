@@ -146,7 +146,7 @@ export class ConfirmationService extends EventEmitter implements ConfirmationSer
       try {
         await execFileAsync("which", [cmd]);
         await new Promise<void>((resolve, reject) => {
-          const child = spawn(cmd, [filename], {
+          const child = spawn(cmd, ["--", filename], {
             stdio: "ignore",
             detached: true,
             shell: false,
