@@ -31,7 +31,7 @@ export class ParallelExecutor {
         return;
       }
 
-      const task = tasks[index];
+      const task = tasks[index]!;
       const confirmation = await this.confirmationService.requestConfirmation(
         {
           operation: `Execute ${task.type} task`,

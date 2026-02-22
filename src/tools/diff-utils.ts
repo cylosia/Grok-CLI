@@ -7,14 +7,14 @@ function computeLCS(oldLines: string[], newLines: string[]): number[][] {
   }
   const dp: number[][] = Array(m + 1)
     .fill(0)
-    .map(() => Array(n + 1).fill(0));
+    .map(() => Array<number>(n + 1).fill(0));
 
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       if (oldLines[i - 1] === newLines[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
+        dp[i]![j] = dp[i - 1]![j - 1]! + 1;
       } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        dp[i]![j] = Math.max(dp[i - 1]![j]!, dp[i]![j - 1]!);
       }
     }
   }
@@ -48,7 +48,7 @@ function extractChanges(
       }
       i--;
       j--;
-    } else if (j > 0 && (i === 0 || lcs[i][j - 1] >= lcs[i - 1][j])) {
+    } else if (j > 0 && (i === 0 || lcs[i]![j - 1]! >= lcs[i - 1]![j]!)) {
       if (!inChange) {
         oldEnd = i;
         newEnd = j;
@@ -103,13 +103,13 @@ export function generateUnifiedDiff(oldLines: string[], newLines: string[], file
   let accumulatedOffset = 0;
 
   for (let changeIdx = 0; changeIdx < changes.length; changeIdx++) {
-    const change = changes[changeIdx];
+    const change = changes[changeIdx]!;
 
     const contextStart = Math.max(0, change.oldStart - CONTEXT_LINES);
     const contextEnd = Math.min(oldLines.length, change.oldEnd + CONTEXT_LINES);
 
     if (hunks.length > 0) {
-      const lastHunk = hunks[hunks.length - 1];
+      const lastHunk = hunks[hunks.length - 1]!;
       const lastHunkEnd = lastHunk.oldStart + lastHunk.oldCount;
 
       if (lastHunkEnd >= contextStart) {
@@ -117,23 +117,23 @@ export function generateUnifiedDiff(oldLines: string[], newLines: string[], file
         const newContextEnd = Math.min(oldLines.length, change.oldEnd + CONTEXT_LINES);
 
         for (let idx = oldHunkEnd; idx < change.oldStart; idx++) {
-          lastHunk.lines.push({ type: " ", content: oldLines[idx] });
+          lastHunk.lines.push({ type: " ", content: oldLines[idx] ?? "" });
         }
 
         for (let idx = change.oldStart; idx < change.oldEnd; idx++) {
-          lastHunk.lines.push({ type: "-", content: oldLines[idx] });
+          lastHunk.lines.push({ type: "-", content: oldLines[idx] ?? "" });
         }
         for (let idx = change.newStart; idx < change.newEnd; idx++) {
-          lastHunk.lines.push({ type: "+", content: newLines[idx] });
+          lastHunk.lines.push({ type: "+", content: newLines[idx] ?? "" });
         }
 
         for (let idx = change.oldEnd; idx < newContextEnd && idx < oldLines.length; idx++) {
-          lastHunk.lines.push({ type: " ", content: oldLines[idx] });
+          lastHunk.lines.push({ type: " ", content: oldLines[idx] ?? "" });
         }
 
-        lastHunk.oldCount = newContextEnd - lastHunk.oldStart;
-        lastHunk.newCount =
-          lastHunk.oldCount + (change.newEnd - change.newStart) - (change.oldEnd - change.oldStart);
+        // Recompute counts from actual line data to handle cumulative merges correctly
+        lastHunk.oldCount = lastHunk.lines.filter(l => l.type === " " || l.type === "-").length;
+        lastHunk.newCount = lastHunk.lines.filter(l => l.type === " " || l.type === "+").length;
 
         continue;
       }
@@ -148,19 +148,19 @@ export function generateUnifiedDiff(oldLines: string[], newLines: string[], file
     };
 
     for (let idx = contextStart; idx < change.oldStart; idx++) {
-      hunk.lines.push({ type: " ", content: oldLines[idx] });
+      hunk.lines.push({ type: " ", content: oldLines[idx] ?? "" });
     }
 
     for (let idx = change.oldStart; idx < change.oldEnd; idx++) {
-      hunk.lines.push({ type: "-", content: oldLines[idx] });
+      hunk.lines.push({ type: "-", content: oldLines[idx] ?? "" });
     }
 
     for (let idx = change.newStart; idx < change.newEnd; idx++) {
-      hunk.lines.push({ type: "+", content: newLines[idx] });
+      hunk.lines.push({ type: "+", content: newLines[idx] ?? "" });
     }
 
     for (let idx = change.oldEnd; idx < contextEnd && idx < oldLines.length; idx++) {
-      hunk.lines.push({ type: " ", content: oldLines[idx] });
+      hunk.lines.push({ type: " ", content: oldLines[idx] ?? "" });
     }
 
     hunks.push(hunk);

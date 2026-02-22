@@ -27,17 +27,17 @@ export function isWordBoundary(char: string | undefined): boolean {
  */
 export function findWordStart(text: string, position: number): number {
   if (position <= 0) return 0;
-  
+
   let pos = position - 1;
   while (pos > 0 && !isWordBoundary(text[pos])) {
     pos--;
   }
-  
+
   // If we stopped at a word boundary, move forward to the actual word start
-  if (pos > 0 && isWordBoundary(text[pos])) {
+  if (isWordBoundary(text[pos])) {
     pos++;
   }
-  
+
   return pos;
 }
 
@@ -131,7 +131,7 @@ export function getTextPosition(text: string, index: number): TextPosition {
   return {
     index,
     line: lines.length - 1,
-    column: lines[lines.length - 1].length,
+    column: lines[lines.length - 1]!.length,
   };
 }
 

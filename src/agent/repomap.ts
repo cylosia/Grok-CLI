@@ -28,7 +28,7 @@ export class Repomap2 {
     for (const filePath of files) {
       const ext = fileExtension(filePath);
       const centrality = ext === ".ts" || ext === ".tsx" ? 1 : 0.5;
-      const dependencies = filePath.includes("/") ? [filePath.split("/")[0]] : [];
+      const dependencies: string[] = filePath.includes("/") ? [filePath.split("/")[0]!] : [];
       for (const dep of dependencies) {
         uniqueDependencies.set(dep, (uniqueDependencies.get(dep) ?? 0) + 1);
       }
@@ -70,6 +70,11 @@ export class Repomap2 {
     const recurse = async (dir: string): Promise<void> => {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
+        // Skip symlinks to prevent infinite loops and workspace escape
+        if (entry.isSymbolicLink()) {
+          continue;
+        }
+
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           if (!IGNORED_DIRECTORIES.has(entry.name)) {

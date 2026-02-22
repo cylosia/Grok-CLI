@@ -17,7 +17,7 @@ const CLI_SECRET_ARG_KEY_PATTERN = /(token|api[-_]?key|secret|password|authoriza
 const CLI_SECRET_ARG_VALUE_PATTERN = /^(?:bearer\s+)?[A-Za-z0-9_\-]{20,}$/i;
 
 export function redactCliArg(arg: string): string {
-  const [key, ...rest] = arg.split("=");
+  const [key = "", ...rest] = arg.split("=");
   if (rest.length > 0) {
     const value = rest.join("=");
     if (CLI_SECRET_ARG_KEY_PATTERN.test(key) || CLI_SECRET_ARG_VALUE_PATTERN.test(value)) {

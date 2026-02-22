@@ -61,11 +61,21 @@ export function parseMCPServerName(value: string): MCPServerName | null {
 }
 
 
+const TOOL_CALL_ID_PATTERN = /^[a-zA-Z0-9_:.\-]{1,256}$/;
+
 export function asToolCallId(value: string): ToolCallId {
+  if (!TOOL_CALL_ID_PATTERN.test(value)) {
+    throw new Error(`Invalid tool call ID: ${value.slice(0, 64)}`);
+  }
   return value as ToolCallId;
 }
 
+const CONFIRMATION_REQUEST_ID_PATTERN = /^[a-fA-F0-9]{1,256}$/;
+
 export function asConfirmationRequestId(value: string): ConfirmationRequestId {
+  if (!CONFIRMATION_REQUEST_ID_PATTERN.test(value)) {
+    throw new Error(`Invalid confirmation request ID: ${value.slice(0, 64)}`);
+  }
   return value as ConfirmationRequestId;
 }
 

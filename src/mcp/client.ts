@@ -335,7 +335,7 @@ export class MCPManager {
       throw new Error(`Invalid MCP tool name: ${name}`);
     }
 
-    const serverName = parseMCPServerName(parts[1]);
+    const serverName = parseMCPServerName(parts[1]!);
     if (!serverName) {
       throw new Error(`Invalid MCP server name: ${parts[1]}`);
     }
