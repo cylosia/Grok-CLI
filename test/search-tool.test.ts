@@ -57,7 +57,7 @@ test("search ripgrep parser logs at most one warning for invalid JSON output", (
   try {
     tool.parseRipgrepOutput("not json\nalso not json\nstill bad", "needle");
     assert.equal(calls.length, 1);
-    const [firstCall] = calls as Array<{ message: string; context?: Record<string, unknown> }>;
+    const firstCall = (calls as Array<{ message: string; context?: Record<string, unknown> }>)[0]!;
     assert.equal(firstCall.message, "search-invalid-rg-json-output");
     assert.equal(firstCall.context?.component, "search-tool");
     assert.equal(firstCall.context?.invalidLineCount, 3);
