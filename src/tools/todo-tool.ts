@@ -140,23 +140,23 @@ export class TodoTool {
           return { success: false, error: `Todo at index ${todoIndex} not found` };
         }
 
-        if (update.status && !TODO_STATUSES.includes(update.status)) {
+        if (update.status !== undefined && !TODO_STATUSES.includes(update.status)) {
           return {
             success: false,
             error: `Invalid status: ${update.status}. Must be pending, in_progress, or completed`
           };
         }
 
-        if (update.priority && !TODO_PRIORITIES.includes(update.priority)) {
+        if (update.priority !== undefined && !TODO_PRIORITIES.includes(update.priority)) {
           return {
             success: false,
             error: `Invalid priority: ${update.priority}. Must be high, medium, or low`
           };
         }
 
-        if (update.status) todo.status = update.status;
-        if (update.content) todo.content = update.content;
-        if (update.priority) todo.priority = update.priority;
+        if (update.status !== undefined) todo.status = update.status;
+        if (update.content !== undefined) todo.content = update.content;
+        if (update.priority !== undefined) todo.priority = update.priority;
       }
 
       return {
