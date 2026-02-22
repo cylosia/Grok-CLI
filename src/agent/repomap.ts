@@ -70,6 +70,11 @@ export class Repomap2 {
     const recurse = async (dir: string): Promise<void> => {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
+        // Skip symlinks to prevent traversal outside repository root
+        if (entry.isSymbolicLink()) {
+          continue;
+        }
+
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           if (!IGNORED_DIRECTORIES.has(entry.name)) {

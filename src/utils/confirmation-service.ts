@@ -41,6 +41,11 @@ export class ConfirmationService extends EventEmitter implements ConfirmationSer
   private pendingQueue: PendingConfirmation[] = [];
   private requestCounter = 0;
 
+  constructor() {
+    super();
+    this.setMaxListeners(25);
+  }
+
   private sessionFlags = {
     fileOperations: false,
     bashCommands: false,

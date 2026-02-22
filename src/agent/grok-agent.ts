@@ -63,6 +63,7 @@ export class GrokAgent extends EventEmitter {
     enableSupervisor = true
   ) {
     super();
+    this.setMaxListeners(20);
     const manager = getSettingsManager();
     const savedModel = manager.getCurrentModel();
     const modelToUse = model || savedModel || "grok-420";

@@ -9,6 +9,7 @@ import { generateUnifiedDiff } from "./diff-utils.js";
 import { logger } from "../utils/logger.js";
 
 export class MorphEditorTool {
+  private static readonly MAX_FILE_SIZE_BYTES = 512 * 1024; // 512 KB
   private confirmationService = ConfirmationService.getInstance();
   private morphApiKey: string;
   private morphBaseUrl: string = "https://api.morphllm.com/v1";
@@ -64,6 +65,14 @@ export class MorphEditorTool {
         return {
           success: false,
           error: `File not found: ${targetFile}`,
+        };
+      }
+
+      const fileStat = await fs.stat(resolvedPath);
+      if (fileStat.size > MorphEditorTool.MAX_FILE_SIZE_BYTES) {
+        return {
+          success: false,
+          error: `File too large (${fileStat.size} bytes, max ${MorphEditorTool.MAX_FILE_SIZE_BYTES}). Use str_replace_editor for large files.`,
         };
       }
 

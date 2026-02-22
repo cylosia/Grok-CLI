@@ -45,6 +45,7 @@ export class AgentSupervisor extends EventEmitter {
 
   constructor(private apiKey: string) {
     super();
+    this.setMaxListeners(15);
     this.repomap = new Repomap2();
   }
 

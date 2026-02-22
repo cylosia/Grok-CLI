@@ -227,6 +227,7 @@ export function useInputHandler({
   });
 
   // Update command suggestions when input changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- handleInputChange is stable within render
   useEffect(() => {
     handleInputChange(input);
   }, [input]);
