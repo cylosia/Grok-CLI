@@ -92,7 +92,8 @@ export class Repomap2 {
         }
 
         if (entry.isFile()) {
-          const relative = fullPath.startsWith(`${root}/`) ? fullPath.slice(root.length + 1) : fullPath;
+          const normalizedRoot = root.endsWith("/") ? root : `${root}/`;
+          const relative = fullPath.startsWith(normalizedRoot) ? fullPath.slice(normalizedRoot.length) : path.relative(root, fullPath);
           files.push(relative);
         }
       }

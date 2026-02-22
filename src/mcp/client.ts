@@ -417,8 +417,6 @@ export class MCPManager {
       const result = await Promise.race([normalizedCallPromise, timeoutPromise]);
       this.callSafety.clearSuccess(callKey, serverName);
       return result;
-    } catch (error) {
-      throw error;
     } finally {
       this.inFlightToolCalls.delete(callKey);
       if (timeoutHandle) {

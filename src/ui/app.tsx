@@ -24,15 +24,15 @@ class ErrorBoundary extends React.Component<
 }
 
 const AppInner = () => {
-  const [initError] = useState<string | null>(() => {
+  const [initResult] = useState<{ config: ReturnType<typeof loadRuntimeConfig> } | { error: string }>(() => {
     try {
-      loadRuntimeConfig();
-      return null;
+      return { config: loadRuntimeConfig() };
     } catch (err) {
-      return err instanceof Error ? err.message : String(err);
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
-  const configRef = useRef(initError ? null : loadRuntimeConfig());
+  const initError = "error" in initResult ? initResult.error : null;
+  const configRef = useRef("error" in initResult ? null : initResult.config);
   const supervisorRef = useRef<AgentSupervisor | null>(null);
   if (configRef.current && !supervisorRef.current) {
     supervisorRef.current = new AgentSupervisor(configRef.current.grokApiKey);

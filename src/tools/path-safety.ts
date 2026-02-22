@@ -7,6 +7,11 @@ export function isWithinRoot(root: string, target: string): boolean {
 }
 
 export async function resolveSafePathWithinRoot(root: string, filePath: string): Promise<string> {
+  // Reject null bytes which can cause path truncation in native FS calls
+  if (filePath.includes("\0") || root.includes("\0")) {
+    throw new Error("Path must not contain null bytes");
+  }
+
   const workspaceRootReal = await fs.realpath(root);
   const resolvedPath = path.resolve(workspaceRootReal, filePath);
 

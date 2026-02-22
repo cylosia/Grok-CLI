@@ -8,6 +8,8 @@ interface LoadingSpinnerProps {
   tokenCount: number;
 }
 
+const SPINNER_FRAMES = ["/", "-", "\\", "|"] as const;
+
 const loadingTexts = [
   "Thinking...",
   "Computing...",
@@ -36,10 +38,9 @@ export function LoadingSpinner({
   useEffect(() => {
     if (!isActive) return;
 
-    const spinnerFrames = ["/", "-", "\\", "|"];
     // Reduced frequency: 500ms instead of 250ms to reduce flickering on Windows
     const interval = setInterval(() => {
-      setSpinnerFrame((prev) => (prev + 1) % spinnerFrames.length);
+      setSpinnerFrame((prev) => (prev + 1) % SPINNER_FRAMES.length);
     }, 500);
 
     return () => clearInterval(interval);
@@ -60,12 +61,10 @@ export function LoadingSpinner({
 
   if (!isActive) return null;
 
-  const spinnerFrames = ["/", "-", "\\", "|"];
-
   return (
     <Box marginTop={1}>
       <Text color="cyan">
-        {spinnerFrames[spinnerFrame]} {loadingTexts[loadingTextIndex]}{" "}
+        {SPINNER_FRAMES[spinnerFrame % SPINNER_FRAMES.length]} {loadingTexts[loadingTextIndex]}{" "}
       </Text>
       <Text color="gray">
         ({processingTime}s · ↑ {formatTokenCount(tokenCount)} tokens · esc to
