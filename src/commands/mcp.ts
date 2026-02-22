@@ -236,7 +236,9 @@ export function createMCPCommand(): Command {
 
         let config: unknown;
         try {
-          config = JSON.parse(jsonConfig);
+          config = JSON.parse(jsonConfig, (key, value) =>
+            key === "__proto__" || key === "constructor" || key === "prototype" ? undefined : value
+          );
         } catch (_error) {
           console.error(chalk.red('Error: Invalid JSON configuration'));
           throw new Error('Invalid JSON configuration');

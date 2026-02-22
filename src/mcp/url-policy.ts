@@ -65,7 +65,7 @@ function isPrivateIpv4(host: string): boolean {
 
 function isPrivateIpv6(host: string): boolean {
   const normalized = host.toLowerCase();
-  if (normalized === "::1") {
+  if (normalized === "::1" || normalized === "::") {
     return true;
   }
 
@@ -77,7 +77,9 @@ function isPrivateIpv6(host: string): boolean {
   return normalized.startsWith("fc")
     || normalized.startsWith("fd")
     || normalized.startsWith("fe80:")
-    || normalized.startsWith("fec0:");
+    || normalized.startsWith("fec0:")
+    || normalized.startsWith("2001:db8:")  // Documentation range (RFC 3849)
+    || normalized.startsWith("100::");      // Discard prefix (RFC 6666)
 }
 
 function isPrivateIpv6Unscoped(host: string): boolean {

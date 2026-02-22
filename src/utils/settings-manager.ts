@@ -97,6 +97,12 @@ export function sanitizeAndValidateBaseUrl(rawValue: string): string {
     throw new Error("Custom GROK base URL hosts require GROK_ALLOW_CUSTOM_BASE_URL_HOST=1");
   }
 
+  // Block encoded path traversal sequences and unnecessary URL components
+  const decodedPath = decodeURIComponent(parsed.pathname);
+  if (decodedPath.includes("..") || parsed.search || parsed.hash) {
+    throw new Error("GROK base URL must not contain path traversal, query strings, or fragments");
+  }
+
   return parsed.toString();
 }
 
@@ -157,7 +163,7 @@ function sanitizeUserSettings(value: unknown): Partial<UserSettings> {
   if (typeof record.apiKey === "string") sanitized.apiKey = record.apiKey;
   if (typeof record.baseURL === "string") sanitized.baseURL = record.baseURL;
   if (typeof record.defaultModel === "string") sanitized.defaultModel = record.defaultModel;
-  if (Array.isArray(record.models) && record.models.every((m) => typeof m === "string")) sanitized.models = record.models;
+  if (Array.isArray(record.models) && record.models.length <= 100 && record.models.every((m) => typeof m === "string")) sanitized.models = record.models;
   if (typeof record.autoDiscover === "boolean") sanitized.autoDiscover = record.autoDiscover;
   if (typeof record.settingsVersion === "number") sanitized.settingsVersion = record.settingsVersion;
   if (record.trustedMcpServers && typeof record.trustedMcpServers === "object") {
@@ -272,17 +278,28 @@ export class SettingsManager {
   }
 
   private readJsonFile(filePath: string): unknown | null {
-    if (!fsSync.existsSync(filePath)) {
-      return null;
+    let fd: number;
+    try {
+      fd = fsSync.openSync(filePath, fsSync.constants.O_RDONLY | fsSync.constants.O_NOFOLLOW);
+    } catch (err: unknown) {
+      const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : "";
+      if (code === "ENOENT") return null;
+      if (code === "ELOOP") throw new Error(`Refusing to read symlinked settings file: ${filePath}`);
+      throw err;
     }
 
-    const stats = fsSync.statSync(filePath);
-    if (stats.size > MAX_SETTINGS_FILE_BYTES) {
-      throw new Error(`Settings file is too large: ${filePath}`);
+    try {
+      const stats = fsSync.fstatSync(fd);
+      if (stats.size > MAX_SETTINGS_FILE_BYTES) {
+        throw new Error(`Settings file is too large: ${filePath}`);
+      }
+      const content = fsSync.readFileSync(fd, "utf-8");
+      return JSON.parse(content, (key, value) =>
+        key === "__proto__" || key === "constructor" || key === "prototype" ? undefined : value
+      ) as unknown;
+    } finally {
+      fsSync.closeSync(fd);
     }
-
-    const content = fsSync.readFileSync(filePath, "utf-8");
-    return JSON.parse(content) as unknown;
   }
 
   private enqueueWrite(filePath: string, value: object): Promise<void> {

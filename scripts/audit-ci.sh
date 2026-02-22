@@ -4,13 +4,11 @@ set -euo pipefail
 mkdir -p sbom
 
 write_gate_result() {
-  cat > sbom/security-gate-result.json <<JSON
-{
-  "status": "$1",
-  "scanner": "$2",
-  "detail": "$3"
-}
-JSON
+  local status="${1//\"/\\\"}"
+  local scanner="${2//\"/\\\"}"
+  local detail="${3//\"/\\\"}"
+  printf '{\n  "status": "%s",\n  "scanner": "%s",\n  "detail": "%s"\n}\n' \
+    "$status" "$scanner" "$detail" > sbom/security-gate-result.json
 }
 
 # Try npm audit first; capture exit code separately so set -e does not abort.
@@ -26,7 +24,8 @@ if [[ -s sbom/npm-audit.json ]] && node -e "JSON.parse(require('fs').readFileSyn
     write_gate_result "pass" "npm-audit" "npm audit clean"
   else
     echo "npm audit completed — vulnerabilities found; see sbom/npm-audit.json" >&2
-    write_gate_result "pass" "npm-audit" "npm audit completed with findings"
+    write_gate_result "fail" "npm-audit" "npm audit found high-severity vulnerabilities"
+    exit 1
   fi
   exit 0
 fi

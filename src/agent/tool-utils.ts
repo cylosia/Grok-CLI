@@ -1,6 +1,22 @@
 const MAX_TOOL_ARGS_BYTES = 100_000;
 const BLOCKED_PROTO_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+function deepSanitizeProtoKeys(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(deepSanitizeProtoKeys);
+  }
+  if (value && typeof value === "object") {
+    const safe = Object.create(null) as Record<string, unknown>;
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (!BLOCKED_PROTO_KEYS.has(key)) {
+        safe[key] = deepSanitizeProtoKeys(entry);
+      }
+    }
+    return safe;
+  }
+  return value;
+}
+
 export function parseToolArgs(argsRaw: string): Record<string, unknown> {
   if (argsRaw.length > MAX_TOOL_ARGS_BYTES) {
     throw new Error(`Tool arguments exceed ${MAX_TOOL_ARGS_BYTES} bytes`);
@@ -11,14 +27,8 @@ export function parseToolArgs(argsRaw: string): Record<string, unknown> {
     throw new Error("Tool arguments must be a JSON object");
   }
 
-  // Sanitize prototype-pollution keys from LLM-generated JSON
-  const safe = Object.create(null) as Record<string, unknown>;
-  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!BLOCKED_PROTO_KEYS.has(key)) {
-      safe[key] = value;
-    }
-  }
-  return safe;
+  // Recursively sanitize prototype-pollution keys from LLM-generated JSON
+  return deepSanitizeProtoKeys(parsed) as Record<string, unknown>;
 }
 
 export function safeSerializeToolData(data: unknown): string {

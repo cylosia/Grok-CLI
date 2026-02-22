@@ -5,6 +5,7 @@
 import { Box, Text } from 'ink';
 import { Colors } from '../utils/colors.js';
 import { MaxSizedBox } from '../shared/max-sized-box.js';
+import { sanitizeTerminalText } from '../../utils/terminal-sanitize.js';
 
 
 function hashText(input: string): string {
@@ -252,7 +253,7 @@ const renderDiffContent = (
             return acc;
         }
 
-        const displayContent = line.content.substring(baseIndentation);
+        const displayContent = sanitizeTerminalText(line.content.substring(baseIndentation));
 
         acc.push(
           <Box key={lineKey} flexDirection="row">

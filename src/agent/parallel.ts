@@ -17,6 +17,7 @@ export class ParallelExecutor {
   }
 
   async executeParallel(tasks: ParallelTask[], concurrency = 3): Promise<TaskResult[]> {
+    concurrency = Math.max(1, Math.min(concurrency, 10));
     if (tasks.length === 0) {
       return [];
     }

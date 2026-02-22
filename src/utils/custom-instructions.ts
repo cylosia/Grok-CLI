@@ -14,32 +14,39 @@ function sanitizeInstructions(raw: string): string {
   return truncated.replace(CONTROL_CHARS_PATTERN, '');
 }
 
-function isSymlink(filePath: string): boolean {
-  try {
-    return fs.lstatSync(filePath).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-
 function safeReadInstructions(filePath: string): string | null {
-  if (!fs.existsSync(filePath)) {
+  let fd: number | undefined;
+  try {
+    // Open with O_NOFOLLOW to atomically reject symlinks (avoids TOCTOU)
+    fd = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    const stats = fs.fstatSync(fd);
+    if (!stats.isFile() || stats.size > MAX_CUSTOM_INSTRUCTIONS_BYTES * 2) {
+      return null;
+    }
+    const buffer = Buffer.alloc(stats.size);
+    fs.readSync(fd, buffer, 0, stats.size, 0);
+    return sanitizeInstructions(buffer.toString('utf-8'));
+  } catch (err: unknown) {
+    // ENOENT = file doesn't exist, ELOOP = symlink with O_NOFOLLOW
+    const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+    if (code === 'ELOOP') {
+      logger.warn('custom-instructions-symlink-blocked', {
+        component: 'custom-instructions',
+        path: filePath,
+      });
+    }
     return null;
+  } finally {
+    if (fd !== undefined) {
+      fs.closeSync(fd);
+    }
   }
-  if (isSymlink(filePath)) {
-    logger.warn('custom-instructions-symlink-blocked', {
-      component: 'custom-instructions',
-      path: filePath,
-    });
-    return null;
-  }
-  const content = fs.readFileSync(filePath, 'utf-8');
-  return sanitizeInstructions(content);
 }
 
 export function loadCustomInstructions(workingDirectory: string = process.cwd()): string | null {
   try {
-    const localPath = path.join(workingDirectory, '.grok', 'GROK.md');
+    const resolvedDir = path.resolve(workingDirectory);
+    const localPath = path.join(resolvedDir, '.grok', 'GROK.md');
     const localResult = safeReadInstructions(localPath);
     if (localResult !== null) {
       return localResult;

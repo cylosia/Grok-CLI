@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import * as path from "path";
 import { killProcessTree } from "../utils/process-tree.js";
 
 const MAX_OUTPUT_BYTES = 1_000_000;
@@ -86,10 +87,21 @@ export class GitSuite {
       return "No files specified for selective commit";
     }
 
-    // Reject paths that look like flags to prevent argument injection
+    const cwd = process.cwd();
     for (const file of files) {
+      // Reject paths that look like flags to prevent argument injection
       if (file.startsWith("-")) {
         return `Refusing to stage path that starts with '-': ${file}`;
+      }
+      // Reject absolute paths and paths escaping the workspace
+      const resolved = path.resolve(cwd, file);
+      const relative = path.relative(cwd, resolved);
+      if (path.isAbsolute(file) || relative.startsWith("..")) {
+        return `Refusing to stage path outside workspace: ${file}`;
+      }
+      // Reject null bytes
+      if (file.includes("\0")) {
+        return "Refusing to stage path containing null bytes";
       }
     }
 

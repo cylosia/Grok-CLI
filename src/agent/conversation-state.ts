@@ -22,12 +22,12 @@ export class ConversationState {
     this.trimBuffers();
   }
 
-  getMessages(): readonly GrokMessage[] {
-    return this.messages;
-  }
-
   getChatHistory(): ChatEntry[] {
     return [...this.chatHistory];
+  }
+
+  getMessages(): readonly GrokMessage[] {
+    return [...this.messages];
   }
 
   private trimBuffers(): void {
@@ -36,8 +36,11 @@ export class ConversationState {
     }
 
     if (this.messages.length > MAX_MESSAGE_ENTRIES) {
-      const systemMessage = this.messages[0];
-      let tail = this.messages.slice(-(MAX_MESSAGE_ENTRIES - 1));
+      const systemMessage = this.messages.length > 0 && this.messages[0]?.role === "system"
+        ? this.messages[0]
+        : undefined;
+      const nonSystemMessages = systemMessage ? this.messages.slice(1) : this.messages;
+      let tail = nonSystemMessages.slice(-(MAX_MESSAGE_ENTRIES - (systemMessage ? 1 : 0)));
 
       // Ensure we don't start with an orphaned tool response.
       // A 'tool' message must be preceded by an 'assistant' message with tool_calls.
@@ -59,7 +62,7 @@ export class ConversationState {
         tail = tail.slice(1);
       }
 
-      this.messages = systemMessage ? [systemMessage, ...tail] : tail;
+      this.messages = systemMessage !== undefined ? [systemMessage, ...tail] : tail;
     }
   }
 }

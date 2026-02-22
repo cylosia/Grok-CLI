@@ -174,10 +174,13 @@ export class SearchTool {
         args.push("--max-count", options.maxResults.toString());
       }
 
-      // Add file type filters
+      // Add file type filters (validate alphanumeric to prevent argument injection)
       if (options.fileTypes) {
+        const FILE_TYPE_PATTERN = /^[a-zA-Z0-9]+$/;
         options.fileTypes.forEach((type) => {
-          args.push("--type", type);
+          if (FILE_TYPE_PATTERN.test(type)) {
+            args.push("--type", type);
+          }
         });
       }
 
@@ -198,8 +201,9 @@ export class SearchTool {
         });
       }
 
-      // Respect gitignore and common ignore patterns
+      // Prevent symlink traversal and respect gitignore
       args.push(
+        "--no-follow",
         "--no-require-git",
         "--glob",
         "!.git/**",
