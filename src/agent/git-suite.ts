@@ -68,7 +68,9 @@ function runGit(args: string[]): Promise<{ success: boolean; output: string }> {
 
 export class GitSuite {
   async createCheckpoint(name: string): Promise<string> {
-    const add = await runGit(["add", "--", "."]);
+    // Use -u to only stage already-tracked files; avoids accidentally committing
+    // untracked secrets (.env, credentials, private keys) that .gitignore may miss.
+    const add = await runGit(["add", "-u"]);
     if (!add.success) {
       return `Checkpoint failed during stage: ${add.output}`;
     }

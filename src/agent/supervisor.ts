@@ -40,6 +40,7 @@ export interface TaskResult {
 export class AgentSupervisor extends EventEmitter {
   private workers: Map<Task["type"], GrokAgent> = new Map();
   private repomap: Repomap2;
+  private repomapBuilt = false;
   private activeTasks: Map<TaskId, Task> = new Map();
 
   constructor(private apiKey: string) {
@@ -50,6 +51,10 @@ export class AgentSupervisor extends EventEmitter {
   async executeTask(task: Task): Promise<TaskResult> {
     if (!parseTaskId(String(task.id))) {
       return { success: false, error: `Invalid task id: ${String(task.id)}` };
+    }
+
+    if (this.activeTasks.has(task.id)) {
+      return { success: false, error: `Task ${String(task.id)} is already executing` };
     }
 
     const taskSnapshot: Task = {
@@ -65,6 +70,14 @@ export class AgentSupervisor extends EventEmitter {
       ? taskSnapshot.payload.query
       : JSON.stringify(taskSnapshot.payload);
 
+    if (!this.repomapBuilt) {
+      try {
+        await this.repomap.build(process.cwd());
+        this.repomapBuilt = true;
+      } catch {
+        // Repomap build is best-effort; proceed with empty context
+      }
+    }
     const relevantFiles = await this.repomap.getRelevantFiles(query, 8);
     const executionContext = { ...taskSnapshot.context, relevantFiles };
 

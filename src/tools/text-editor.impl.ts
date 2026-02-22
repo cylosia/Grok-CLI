@@ -342,6 +342,15 @@ export class TextEditorTool {
         }
       }
 
+      // Re-read file after confirmation to detect external modifications
+      const currentFileContent = await fs.readFile(resolvedPath, "utf-8");
+      if (currentFileContent !== fileContent) {
+        return {
+          success: false,
+          error: "File was modified externally during confirmation; aborting to prevent data loss. Please retry.",
+        };
+      }
+
       const replacementLines = newContent.split("\n");
       lines.splice(startLine - 1, endLine - startLine + 1, ...replacementLines);
       const newFileContent = lines.join("\n");
@@ -418,6 +427,15 @@ export class TextEditorTool {
             error: confirmationResult.feedback || "Insert cancelled by user",
           };
         }
+      }
+
+      // Re-read file after confirmation to detect external modifications
+      const currentFileContent = await fs.readFile(resolvedPath, "utf-8");
+      if (currentFileContent !== fileContent) {
+        return {
+          success: false,
+          error: "File was modified externally during confirmation; aborting to prevent data loss. Please retry.",
+        };
       }
 
       lines.splice(insertLine - 1, 0, content);
