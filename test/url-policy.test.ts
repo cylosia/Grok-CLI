@@ -24,7 +24,34 @@ test("validateMcpUrl blocks ipv4-mapped-ipv6 private addresses", async () => {
   await assert.rejects(() => validateMcpUrl("https://[::ffff:127.0.0.1]:7777"));
 });
 
-
 test("validateMcpUrl rejects credential-bearing URLs", async () => {
   await assert.rejects(() => validateMcpUrl("https://user:pass@example.com/mcp"));
+});
+
+test("validateMcpUrl blocks 0.0.0.0", async () => {
+  await assert.rejects(() => validateMcpUrl("https://0.0.0.0:8080"));
+});
+
+test("validateMcpUrl blocks 0.0.0.0 even with allowLocalHttp for https", async () => {
+  await assert.rejects(() => validateMcpUrl("https://0.0.0.0:8080", { allowLocalHttp: true }));
+});
+
+test("validateMcpUrl blocks ipv6 loopback ::1", async () => {
+  await assert.rejects(() => validateMcpUrl("https://[::1]:7777"));
+});
+
+test("validateMcpUrl blocks fe80:: link-local addresses", async () => {
+  await assert.rejects(() => validateMcpUrl("https://[fe80::1]:7777"));
+});
+
+test("validateMcpUrl rejects unsupported schemes", async () => {
+  await assert.rejects(() => validateMcpUrl("ftp://example.com/mcp"), /Unsupported MCP URL scheme/);
+});
+
+test("validateMcpUrl rejects invalid URLs", async () => {
+  await assert.rejects(() => validateMcpUrl("not-a-url"), /Invalid MCP URL/);
+});
+
+test("validateMcpUrl rejects empty host", async () => {
+  await assert.rejects(() => validateMcpUrl("https:///path"));
 });

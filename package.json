@@ -1,10 +1,10 @@
 {
-  "name": "grok-cli",
+  "name": "@vibe-kit/grok-cli",
   "version": "2.0.0",
   "description": "Grok CLI v2.0 \u2013 SuperAgent Terminal",
   "main": "dist/index.js",
   "bin": {
-    "grok": "bin/grok"
+    "grok": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -12,7 +12,7 @@
     "test": "npm run -s typecheck && npm run -s test:unit",
     "audit:ci": "bash scripts/audit-ci.sh",
     "test:unit": "tsx --test test/**/*.test.ts",
-    "lint": "eslint src test --ext .ts,.tsx",
+    "lint": "eslint src test",
     "sbom:generate": "mkdir -p sbom && npm ls --all --json > sbom/npm-sbom.json",
     "ci:install": "npm ci --ignore-scripts"
   },
@@ -43,7 +43,7 @@
     "tsx": "^4.0.0",
     "typescript": "^5.3.3"
   },
-  "packageManager": "npm@10",
+  "packageManager": "npm@10.8.2",
   "engines": {
     "node": ">=20 <23",
     "npm": ">=10 <12"

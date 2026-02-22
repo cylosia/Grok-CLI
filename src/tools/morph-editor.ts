@@ -1,8 +1,10 @@
 import fs from "fs-extra";
-import * as path from "path";
+import { constants as fsConstants } from "fs";
+import { open as openFile } from "fs/promises";
 import axios from "axios";
 import { ToolResult } from "../types/index.js";
 import { ConfirmationService } from "../utils/confirmation-service.js";
+import { resolveSafePathWithinRoot } from "./path-safety.js";
 
 export class MorphEditorTool {
   private confirmationService = ConfirmationService.getInstance();
@@ -54,7 +56,7 @@ export class MorphEditorTool {
     codeEdit: string
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = this.resolveSafePath(targetFile);
+      const resolvedPath = await this.resolveSafePath(targetFile);
 
       if (!(await fs.pathExists(resolvedPath))) {
         return {
@@ -103,8 +105,9 @@ export class MorphEditorTool {
       // Call Morph Fast Apply API
       const mergedCode = await this.callMorphApply(instructions, initialCode, codeEdit);
 
-      // Write the merged code back to file
-      await fs.writeFile(resolvedPath, mergedCode, "utf-8");
+      // Write the merged code back to file (symlink-safe)
+      await this.ensureNotSymlink(resolvedPath);
+      await this.writeFileNoFollow(resolvedPath, mergedCode);
 
       // Generate diff for display
       const oldLines = initialCode.split("\n");
@@ -357,7 +360,7 @@ export class MorphEditorTool {
     viewRange?: [number, number]
   ): Promise<ToolResult> {
     try {
-      const resolvedPath = this.resolveSafePath(filePath);
+      const resolvedPath = await this.resolveSafePath(filePath);
 
       if (await fs.pathExists(resolvedPath)) {
         const stats = await fs.stat(resolvedPath);
@@ -413,15 +416,24 @@ export class MorphEditorTool {
   }
 
 
-  private resolveSafePath(filePath: string): string {
-    const resolvedPath = path.resolve(this.workspaceRoot, filePath);
-    const rootPrefix = this.workspaceRoot.endsWith("/") ? this.workspaceRoot : `${this.workspaceRoot}/`;
-
-    if (resolvedPath !== this.workspaceRoot && !resolvedPath.startsWith(rootPrefix)) {
-      throw new Error(`Path escapes workspace root: ${filePath}`);
+  private async ensureNotSymlink(targetPath: string): Promise<void> {
+    const stats = await fs.lstat(targetPath);
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Refusing to write through symlink: ${targetPath}`);
     }
+  }
 
-    return resolvedPath;
+  private async writeFileNoFollow(targetPath: string, content: string): Promise<void> {
+    const handle = await openFile(targetPath, fsConstants.O_WRONLY | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW);
+    try {
+      await handle.writeFile(content, { encoding: "utf-8" });
+    } finally {
+      await handle.close();
+    }
+  }
+
+  private async resolveSafePath(filePath: string): Promise<string> {
+    return resolveSafePathWithinRoot(this.workspaceRoot, filePath);
   }
 
   setApiKey(apiKey: string): void {

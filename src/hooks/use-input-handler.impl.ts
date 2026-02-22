@@ -292,7 +292,7 @@ Enhanced Input Features:
   Ctrl+U      - Delete to start of line
   Shift+Tab   - Toggle auto-edit mode (bypass confirmations)
 
-Direct Commands (executed immediately):
+Direct Commands (executed via bash policy engine):
   ls [path]   - List directory contents
   pwd         - Show current directory
   cd <path>   - Change directory
@@ -380,9 +380,6 @@ Available models: ${modelNames.join(", ")}`,
       "cat",
       "mkdir",
       "touch",
-      "echo",
-      "grep",
-      "find",
     ];
     const firstWord = trimmedInput.split(" ")[0];
 

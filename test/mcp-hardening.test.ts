@@ -111,7 +111,9 @@ test('stdio transport rejects out-of-range MCP_MAX_OUTPUT_BYTES from override', 
   );
 });
 
-test('mcp manager clears in-flight call entry when timed out call never settles', async () => {
+test('mcp manager clears in-flight call entry when timed out call never settles', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+
   const manager = new MCPManager() as unknown as {
     servers: Map<string, { client: { callTool: () => Promise<{ content: unknown[] }> } }>;
     inFlightToolCalls: Map<string, Promise<{ content: unknown[] }>>;
@@ -126,15 +128,8 @@ test('mcp manager clears in-flight call entry when timed out call never settles'
     },
   });
 
-  const originalSetTimeout = global.setTimeout;
-  global.setTimeout = ((fn: (...args: unknown[]) => void, _delay?: number, ...args: unknown[]) => {
-    return originalSetTimeout(fn, 1, ...args);
-  }) as typeof setTimeout;
-
-  try {
-    await assert.rejects(() => manager.callTool('mcp__local__create_item', {}), /timed out/);
-    assert.equal(manager.inFlightToolCalls.size, 0);
-  } finally {
-    global.setTimeout = originalSetTimeout;
-  }
+  const callPromise = manager.callTool('mcp__local__create_item', {});
+  t.mock.timers.tick(120_000);
+  await assert.rejects(() => callPromise, /timed out/);
+  assert.equal(manager.inFlightToolCalls.size, 0);
 });

@@ -42,7 +42,41 @@ export async function runCommitAndPushFlow({
       return;
     }
 
-    const addResult = await agent.executeBashCommand("git add -A");
+    const SENSITIVE_FILE_PATTERNS = [
+      /(?:^|\/)\.env(?:\.|$)/i,
+      /(?:^|\/)id_rsa(?:\.pub)?$/i,
+      /(?:^|\/)id_ed25519(?:\.pub)?$/i,
+      /(?:^|\/)\.ssh\//i,
+      /(?:^|\/)credentials?\b/i,
+      /(?:^|\/)secrets?\b/i,
+      /(?:^|\/)\.grok\/.*\.md$/i,
+    ];
+    const statusLines = (initialStatusResult.output || "").split("\n").filter(Boolean);
+    const filesToStage = statusLines
+      .map((line) => line.slice(3).trim())
+      .filter((file) => !SENSITIVE_FILE_PATTERNS.some((pattern) => pattern.test(file)));
+    const skippedFiles = statusLines
+      .map((line) => line.slice(3).trim())
+      .filter((file) => SENSITIVE_FILE_PATTERNS.some((pattern) => pattern.test(file)));
+
+    if (skippedFiles.length > 0) {
+      appendChatEntry(setChatHistory, {
+        type: "assistant",
+        content: `Skipped sensitive files: ${skippedFiles.join(", ")}`,
+        timestamp: new Date(),
+      });
+    }
+
+    if (filesToStage.length === 0) {
+      appendChatEntry(setChatHistory, {
+        type: "assistant",
+        content: "No non-sensitive files to stage.",
+        timestamp: new Date(),
+      });
+      return;
+    }
+
+    const addResult = await agent.executeBashCommandArgs("git", ["add", "--", ...filesToStage]);
     if (!addResult.success) {
       appendChatEntry(setChatHistory, {
         type: "assistant",
@@ -54,14 +88,14 @@ export async function runCommitAndPushFlow({
 
     appendChatEntry(setChatHistory, {
       type: "tool_result",
-      content: "Tracked changes staged successfully",
+      content: `Staged ${filesToStage.length} file(s) successfully`,
       timestamp: new Date(),
       toolCall: {
         id: `git_add_${Date.now()}`,
         type: "function",
         function: {
           name: "bash",
-          arguments: JSON.stringify({ command: "git add -A" }),
+          arguments: JSON.stringify({ command: `git add -- ${filesToStage.join(" ")}` }),
         },
       },
       toolResult: addResult,

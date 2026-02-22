@@ -1,6 +1,26 @@
 # Source files (only include built dist/)
 src/
 tsconfig.json
+tsconfig.*.json
+
+# Type declarations (use @types/node)
+types/
+
+# Build and packaging scripts
+scripts/
+
+# SBOM artifacts
+sbom/
+
+# Source maps
+*.map
+
+# Binary entrypoint (dist/index.js is the entrypoint)
+bin/
+
+# Custom instructions
+.grok/
+.claude/
 
 # Lock files from other package managers
 yarn.lock
@@ -8,6 +28,7 @@ yarn.lock
 # Development and build tools
 .gitignore
 .eslintrc*
+eslint.config.*
 .prettierrc*
 jest.config.*
 webpack.config.*

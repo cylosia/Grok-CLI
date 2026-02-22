@@ -6,7 +6,6 @@ export interface ConfirmationRequest {
   filename: string;
   description?: string;
   showVSCodeOpen?: boolean;
-  autoAccept?: boolean;
 }
 
 export class ConfirmationTool {
@@ -18,14 +17,6 @@ export class ConfirmationTool {
 
   async requestConfirmation(request: ConfirmationRequest): Promise<ToolResult> {
     try {
-      // If autoAccept is true, skip the confirmation dialog
-      if (request.autoAccept) {
-        return {
-          success: true,
-          output: `Auto-accepted: ${request.operation}(${request.filename})${request.description ? ` - ${request.description}` : ''}`
-        };
-      }
-
       const options: ConfirmationOptions = {
         operation: request.operation,
         filename: request.filename,
