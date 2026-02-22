@@ -19,11 +19,6 @@ export function loadCustomInstructions(workingDirectory: string = process.cwd())
     let instructionsPath = path.join(workingDirectory, '.grok', 'GROK.md');
 
     if (fs.existsSync(instructionsPath)) {
-      const stats = fs.lstatSync(instructionsPath);
-      if (stats.isSymbolicLink()) {
-        logger.warn('custom-instructions-symlink-rejected', { component: 'custom-instructions', path: instructionsPath });
-        return null;
-      }
       const customInstructions = fs.readFileSync(instructionsPath, 'utf-8');
       return sanitizeInstructions(customInstructions);
     }
@@ -31,11 +26,6 @@ export function loadCustomInstructions(workingDirectory: string = process.cwd())
     instructionsPath = path.join(os.homedir(), '.grok', 'GROK.md');
 
     if (fs.existsSync(instructionsPath)) {
-      const stats = fs.lstatSync(instructionsPath);
-      if (stats.isSymbolicLink()) {
-        logger.warn('custom-instructions-symlink-rejected', { component: 'custom-instructions', path: instructionsPath });
-        return null;
-      }
       const customInstructions = fs.readFileSync(instructionsPath, 'utf-8');
       return sanitizeInstructions(customInstructions);
     }

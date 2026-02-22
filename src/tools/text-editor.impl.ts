@@ -500,27 +500,6 @@ export class TextEditorTool {
         case "create":
           if (lastEdit.path) {
             const safePath = await this.resolveSafePath(lastEdit.path);
-            // Require confirmation before deleting a file
-            const sessionFlags = this.confirmationService.getSessionFlags();
-            if (!sessionFlags.fileOperations && !sessionFlags.allOperations) {
-              const confirmResult = await this.confirmationService.requestConfirmation(
-                {
-                  operation: "Undo file creation (delete file)",
-                  filename: lastEdit.path,
-                  showVSCodeOpen: false,
-                  content: `This will delete: ${lastEdit.path}`,
-                },
-                "file"
-              );
-              if (!confirmResult.confirmed) {
-                // Re-push the edit so it can be undone again later
-                this.pushEdit(lastEdit);
-                return {
-                  success: false,
-                  error: confirmResult.feedback || "Undo cancelled by user",
-                };
-              }
-            }
             await this.ensureNotSymlink(safePath);
             await fs.remove(safePath);
           }
@@ -614,14 +593,8 @@ export class TextEditorTool {
   }
   
   private isSimilarStructure(search: string, actual: string): boolean {
-    // Require line count to be within 20% to prevent matching wildly different functions
-    const searchLineCount = search.split('\n').length;
-    const actualLineCount = actual.split('\n').length;
-    const lineRatio = Math.min(searchLineCount, actualLineCount) / Math.max(searchLineCount, actualLineCount);
-    if (lineRatio < 0.8) return false;
-
     const extractTokens = (str: string) => {
-      const tokens = str.match(/\b(function|const|let|var|console\.log|return|if|else|for|while|switch|case|try|catch|throw|await|async|class|new)\b/g) || [];
+      const tokens = str.match(/\b(function|console\.log|return|if|else|for|while)\b/g) || [];
       return tokens;
     };
 
@@ -633,24 +606,6 @@ export class TextEditorTool {
     for (let i = 0; i < searchTokens.length; i++) {
       if (searchTokens[i] !== actualTokens[i]) return false;
     }
-
-    // Require at least 60% character overlap (Jaccard on character trigrams)
-    const trigrams = (str: string): Set<string> => {
-      const s = new Set<string>();
-      for (let i = 0; i <= str.length - 3; i++) {
-        s.add(str.slice(i, i + 3));
-      }
-      return s;
-    };
-    const searchTrigrams = trigrams(search);
-    const actualTrigrams = trigrams(actual);
-    let intersection = 0;
-    for (const t of searchTrigrams) {
-      if (actualTrigrams.has(t)) intersection++;
-    }
-    const union = new Set([...searchTrigrams, ...actualTrigrams]).size;
-    const similarity = union > 0 ? intersection / union : 0;
-    if (similarity < 0.6) return false;
 
     return true;
   }

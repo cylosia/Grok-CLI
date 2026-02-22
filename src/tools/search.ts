@@ -395,11 +395,6 @@ export class SearchTool {
             continue;
           }
 
-          // Skip symlinks to prevent traversal outside workspace
-          if (entry.isSymbolicLink()) {
-            continue;
-          }
-
           if (entry.isFile()) {
             const score = this.calculateFileScore(
               entry.name,

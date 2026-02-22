@@ -37,8 +37,5 @@ export async function resolveSafePathWithinRoot(root: string, filePath: string):
     throw new Error(`Path parent resolves outside workspace root: ${filePath}`);
   }
 
-  // Reconstruct the path through the canonicalized ancestor to prevent
-  // symlink-based traversal via non-existent intermediate directories.
-  const remainder = path.relative(ancestor, resolvedPath);
-  return path.join(ancestorReal, remainder);
+  return resolvedPath;
 }

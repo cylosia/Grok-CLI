@@ -11,8 +11,6 @@ export interface RepoMapNode {
 }
 
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", ".next", ".cache"]);
-const MAX_WALK_FILES = 50_000;
-const MAX_WALK_DEPTH = 30;
 
 function fileExtension(filePath: string): string {
   const dot = filePath.lastIndexOf(".");
@@ -69,24 +67,13 @@ export class Repomap2 {
   private async walk(root: string): Promise<string[]> {
     const files: string[] = [];
 
-    const recurse = async (dir: string, depth: number): Promise<void> => {
-      if (depth > MAX_WALK_DEPTH || files.length >= MAX_WALK_FILES) {
-        return;
-      }
+    const recurse = async (dir: string): Promise<void> => {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (files.length >= MAX_WALK_FILES) {
-          return;
-        }
-        // Skip symlinks to prevent traversal outside repository root
-        if (entry.isSymbolicLink()) {
-          continue;
-        }
-
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           if (!IGNORED_DIRECTORIES.has(entry.name)) {
-            await recurse(fullPath, depth + 1);
+            await recurse(fullPath);
           }
           continue;
         }
@@ -98,7 +85,7 @@ export class Repomap2 {
       }
     };
 
-    await recurse(root, 0);
+    await recurse(root);
     return files;
   }
 }

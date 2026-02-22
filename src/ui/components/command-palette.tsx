@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { logger } from "../../utils/logger.js";
 import { Text, Box } from "ink";
 import { useInput } from "ink";
@@ -15,11 +15,6 @@ export const CommandPalette = ({ supervisor, onClose }: CommandPaletteProps) => 
   const [results] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    return () => { mountedRef.current = false; };
-  }, []);
 
   useInput((input, key) => {
     if (key.escape || key.ctrl && input === "c") onClose();
@@ -39,7 +34,6 @@ export const CommandPalette = ({ supervisor, onClose }: CommandPaletteProps) => 
 
       supervisor.executeTask({ id: taskId, type: "reason", payload: { query }, priority: 10 })
         .then((result) => {
-          if (!mountedRef.current) return;
           if (result.success) {
             onClose();
             return;
@@ -48,15 +42,13 @@ export const CommandPalette = ({ supervisor, onClose }: CommandPaletteProps) => 
           setError(result.error || "Task failed");
         })
         .catch((taskError: unknown) => {
+          setError(taskError instanceof Error ? taskError.message : String(taskError));
           logger.error("command-palette-task-failed", {
             component: "command-palette",
             error: taskError instanceof Error ? taskError.message : String(taskError),
           });
-          if (!mountedRef.current) return;
-          setError(taskError instanceof Error ? taskError.message : String(taskError));
         })
         .finally(() => {
-          if (!mountedRef.current) return;
           setIsRunning(false);
         });
       return;

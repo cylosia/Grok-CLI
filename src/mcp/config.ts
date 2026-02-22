@@ -110,7 +110,7 @@ export async function removeMCPServer(serverName: string): Promise<void> {
 export function getTrustedMCPServerFingerprints(): Record<string, string> {
   const manager = getSettingsManager();
   const userSettings = manager.loadUserSettings();
-  return userSettings.trustedMcpServers || (Object.create(null) as Record<string, string>);
+  return userSettings.trustedMcpServers || {};
 }
 
 export async function setTrustedMCPServerFingerprint(serverName: string, fingerprint: string): Promise<void> {

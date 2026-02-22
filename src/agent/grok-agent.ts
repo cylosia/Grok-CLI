@@ -63,7 +63,6 @@ export class GrokAgent extends EventEmitter {
     enableSupervisor = true
   ) {
     super();
-    this.setMaxListeners(20);
     const manager = getSettingsManager();
     const savedModel = manager.getCurrentModel();
     const modelToUse = model || savedModel || "grok-420";
@@ -132,8 +131,6 @@ export class GrokAgent extends EventEmitter {
     entries.push(userEntry);
     this.conversationState.addMessage({ role: "user", content: message });
 
-    // Abort any in-flight request from a previous invocation before creating a new controller
-    this.abortController?.abort();
     this.abortController = new AbortController();
     const tools = await getAllGrokTools();
     let toolRounds = 0;
@@ -219,7 +216,6 @@ export class GrokAgent extends EventEmitter {
     const totalTokens = this.tokenCounter.countTokens(message);
     yield { type: "token_count", tokenCount: totalTokens };
 
-    this.abortController?.abort();
     this.abortController = new AbortController();
     const tools: GrokTool[] = await getAllGrokTools();
     let toolRounds = 0;
