@@ -17,8 +17,8 @@ test("logger redacts bearer token value strings", () => {
   }
 
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /\[REDACTED\]/);
-  assert.equal(warnings[0].includes("abcdefghijklmnopqrstuvwxyz123456"), false);
+  assert.match(warnings[0]!, /\[REDACTED\]/);
+  assert.equal(warnings[0]!.includes("abcdefghijklmnopqrstuvwxyz123456"), false);
 });
 
 
@@ -37,7 +37,7 @@ test("logger handles circular context objects without throwing", () => {
   }
 
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /\[CIRCULAR\]/);
+  assert.match(warnings[0]!, /\[CIRCULAR\]/);
 });
 
 
@@ -53,6 +53,6 @@ test("logger redacts short high-entropy token-like strings", () => {
   }
 
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /\[REDACTED\]/);
-  assert.equal(warnings[0].includes(secret), false);
+  assert.match(warnings[0]!, /\[REDACTED\]/);
+  assert.equal(warnings[0]!.includes(secret), false);
 });
