@@ -59,7 +59,10 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
       const agent = new GrokAgent(apiKey);
 
 
-      // Persist non-sensitive settings; API key remains in memory for this session
+      // Persist API key to session-only in-memory state via SettingsManager.
+      // SettingsManager.updateUserSetting("apiKey", ...) stores the key in
+      // this.sessionApiKey (RAM) and explicitly strips it from the JSON file
+      // before writing to disk. See settings-manager.ts for the full flow.
       try {
         const manager = getSettingsManager();
         await manager.updateUserSetting('apiKey', apiKey);
