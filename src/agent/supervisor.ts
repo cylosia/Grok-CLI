@@ -3,6 +3,22 @@ import { EventEmitter } from "events";
 import { GrokAgent } from "./grok-agent.js";
 import { Repomap2 } from "./repomap.js";
 
+const PROMPT_SECRET_KEY_PATTERN = /(api[-_]?key|token|password|secret|authorization|cookie)/i;
+const PROMPT_SECRET_VALUE_PATTERNS = [
+  /-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/i,
+  /\b(?:sk|rk|pk)_[A-Za-z0-9]{16,}\b/,
+  /\bBearer\s+[A-Za-z0-9._\-~+/]+=*\b/i,
+  /\bxai-[A-Za-z0-9]{20,}\b/,
+];
+
+function scrubPromptString(value: string): string {
+  let output = value;
+  for (const pattern of PROMPT_SECRET_VALUE_PATTERNS) {
+    output = output.replace(pattern, "[REDACTED]");
+  }
+  return output;
+}
+
 function redactForPrompt(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((entry) => redactForPrompt(entry));
@@ -11,12 +27,16 @@ function redactForPrompt(value: unknown): unknown {
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => {
-        if (/(api[-_]?key|token|password|secret|authorization|cookie)/i.test(key)) {
+        if (PROMPT_SECRET_KEY_PATTERN.test(key)) {
           return [key, "[REDACTED]"];
         }
         return [key, redactForPrompt(child)];
       })
     );
+  }
+
+  if (typeof value === "string") {
+    return scrubPromptString(value);
   }
 
   return value;

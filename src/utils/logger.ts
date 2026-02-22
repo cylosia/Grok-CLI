@@ -10,7 +10,8 @@ const SECRET_VALUE_PATTERNS = [
   /-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/i,
   /\b(?:sk|rk|pk)_[A-Za-z0-9]{16,}\b/,
   /\bBearer\s+[A-Za-z0-9._\-~+/]+=*\b/i,
-  /\b[A-Fa-f0-9]{40,}\b/,
+  /\bxai-[A-Za-z0-9]{20,}\b/,
+  /\b[A-Fa-f0-9]{64,}\b/,  // 64+ hex only (avoids git SHA-1 false positives at 40)
 ];
 
 function looksLikeSecretBlob(value: string): boolean {
