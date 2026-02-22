@@ -31,17 +31,18 @@ export function CommandSuggestions({
   selectedIndex,
   isVisible,
 }: CommandSuggestionsProps) {
-  if (!isVisible) return null;
-
+  // useMemo must be called before any conditional return (Rules of Hooks)
   const filteredSuggestions = useMemo(
     () => filterCommandSuggestions(suggestions, input),
     [suggestions, input]
   );
 
+  if (!isVisible) return null;
+
   return (
     <Box marginTop={1} flexDirection="column">
       {filteredSuggestions.map((suggestion, index) => (
-        <Box key={index} paddingLeft={1}>
+        <Box key={suggestion.command} paddingLeft={1}>
           <Text
             color={index === selectedIndex ? "black" : "white"}
             {...(index === selectedIndex ? { backgroundColor: "cyan" } : {})}

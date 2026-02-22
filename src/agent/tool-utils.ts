@@ -9,7 +9,15 @@ export function parseToolArgs(argsRaw: string): Record<string, unknown> {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Tool arguments must be a JSON object");
   }
-  return parsed as Record<string, unknown>;
+  // Strip prototype-polluting keys before forwarding to tools/MCP servers
+  const BLOCKED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+  const safe = Object.create(null) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!BLOCKED_KEYS.has(key)) {
+      safe[key] = value;
+    }
+  }
+  return safe;
 }
 
 export function safeSerializeToolData(data: unknown): string {

@@ -5,6 +5,7 @@ function normalizeForCanonicalJson(value: unknown): unknown {
 
   if (value && typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "__proto__" && key !== "constructor" && key !== "prototype")
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, entry]) => [key, normalizeForCanonicalJson(entry)] as const);
     return Object.fromEntries(entries);

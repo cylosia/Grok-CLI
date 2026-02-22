@@ -10,10 +10,13 @@ export const BLOCKED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   git: new Set(['-c', '--config-env', '--exec-path']),
 };
 
+// Path-bearing flags that need workspace boundary validation.
+// Flags already in BLOCKED_FLAGS_BY_COMMAND are excluded here since they
+// are rejected before path validation runs.
 export const PATH_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   git: new Set(['-C']),
-  rg: new Set(['--ignore-file', '--pre']),
-  grep: new Set(['--exclude-from', '--include-from', '-f']),
+  rg: new Set([]),
+  grep: new Set([]),
   find: new Set([]),
   ls: new Set([]),
   cat: new Set([]),
@@ -35,7 +38,8 @@ export const GIT_ALLOWED_MUTATING_SUBCOMMANDS = new Set([
 export const GIT_BLOCKED_DESTRUCTIVE_SUBCOMMANDS = new Set([
   'checkout', 'switch', 'reset', 'merge', 'rebase', 'cherry-pick'
 ]);
+// --exec-path is intentionally excluded (already in BLOCKED_FLAGS_BY_COMMAND.git)
 export const GIT_PATH_BEARING_FLAGS = new Set([
-  '-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--exec-path'
+  '-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix'
 ]);
 export const PATH_ARG_COMMANDS = new Set(['ls', 'cat', 'mkdir', 'touch', 'find', 'rg', 'grep']);

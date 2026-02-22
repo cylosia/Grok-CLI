@@ -25,8 +25,7 @@ export class ParallelExecutor {
     let cursor = 0;
 
     const runNext = async (): Promise<void> => {
-      const index = cursor;
-      cursor += 1;
+      const index = cursor++;  // atomic read-and-increment in single expression
       if (index >= tasks.length) {
         return;
       }

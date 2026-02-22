@@ -9,6 +9,7 @@ import { generateUnifiedDiff } from "./diff-utils.js";
 import { logger } from "../utils/logger.js";
 
 export class MorphEditorTool {
+  private static readonly MAX_FILE_SIZE_BYTES = 512 * 1024; // 512 KB
   private confirmationService = ConfirmationService.getInstance();
   private morphApiKey: string;
   private morphBaseUrl: string = "https://api.morphllm.com/v1";
@@ -67,6 +68,14 @@ export class MorphEditorTool {
         };
       }
 
+      const fileStat = await fs.stat(resolvedPath);
+      if (fileStat.size > MorphEditorTool.MAX_FILE_SIZE_BYTES) {
+        return {
+          success: false,
+          error: `File too large (${fileStat.size} bytes, max ${MorphEditorTool.MAX_FILE_SIZE_BYTES}). Use str_replace_editor for large files.`,
+        };
+      }
+
       if (!this.morphApiKey) {
         return {
           success: false,
@@ -104,8 +113,24 @@ export class MorphEditorTool {
         }
       }
 
+      // Re-read the file after confirmation to detect external modifications
+      // and re-check for sensitive content before sending to external API.
+      const currentContent = await fs.readFile(resolvedPath, "utf-8");
+      if (currentContent !== initialCode) {
+        return {
+          success: false,
+          error: "File was modified externally during confirmation; aborting to prevent data loss.",
+        };
+      }
+      if (this.containsSensitiveMaterial(targetFile, currentContent)) {
+        return {
+          success: false,
+          error: "File now contains sensitive content; aborting external API call.",
+        };
+      }
+
       // Call Morph Fast Apply API
-      const mergedCode = await this.callMorphApply(instructions, initialCode, codeEdit);
+      const mergedCode = await this.callMorphApply(instructions, currentContent, codeEdit);
 
       // Write the merged code back to file (symlink-safe)
       await this.ensureNotSymlink(resolvedPath);
@@ -166,7 +191,11 @@ export class MorphEditorTool {
         throw new Error("Invalid response format from Morph API");
       }
 
-      return response.data.choices[0].message.content;
+      const content = response.data.choices[0].message.content;
+      if (typeof content !== "string" || content.length === 0) {
+        throw new Error("Morph API returned empty or non-string content");
+      }
+      return content;
     } catch (error: unknown) {
       const maybeError = error as { response?: { status?: number } };
       if (maybeError.response) {

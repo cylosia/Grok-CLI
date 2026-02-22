@@ -166,6 +166,12 @@ function writeJsonFileSyncAtomic(filePath: string, value: object): void {
 
 async function ensureSecureDirectory(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  // Verify the directory was not replaced with a symlink between mkdir and now
+  // by comparing realpath to the expected path.
+  const realDir = await fs.realpath(dir);
+  if (realDir !== dir) {
+    throw new Error(`Refusing to use symlinked settings directory: ${dir} -> ${realDir}`);
+  }
   const stats = await fs.lstat(dir);
   if (stats.isSymbolicLink()) {
     throw new Error(`Refusing to use symlinked settings directory: ${dir}`);
@@ -178,6 +184,10 @@ async function ensureSecureDirectory(dir: string): Promise<void> {
 
 function ensureSecureDirectorySync(dir: string): void {
   fsSync.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const realDir = fsSync.realpathSync(dir);
+  if (realDir !== dir) {
+    throw new Error(`Refusing to use symlinked settings directory: ${dir} -> ${realDir}`);
+  }
   const stats = fsSync.lstatSync(dir);
   if (stats.isSymbolicLink()) {
     throw new Error(`Refusing to use symlinked settings directory: ${dir}`);

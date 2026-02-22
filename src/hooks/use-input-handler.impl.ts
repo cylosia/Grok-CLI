@@ -8,6 +8,7 @@ import { filterCommandSuggestions } from "../ui/components/command-suggestions.j
 import { loadModelConfig, updateCurrentModel } from "../utils/model-config.js";
 import { logger } from "../utils/logger.js";
 import { runCommitAndPushFlow } from "./commit-and-push-handler.js";
+import { UNSAFE_SHELL_METACHARS } from "../tools/bash-policy.js";
 
 interface UseInputHandlerProps {
   agent: GrokAgent;
@@ -227,6 +228,7 @@ export function useInputHandler({
   });
 
   // Update command suggestions when input changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- handleInputChange is stable within render
   useEffect(() => {
     handleInputChange(input);
   }, [input]);
@@ -383,7 +385,7 @@ Available models: ${modelNames.join(", ")}`,
     ];
     const firstWord = trimmedInput.split(" ")[0];
 
-    if (directBashCommands.includes(firstWord)) {
+    if (directBashCommands.includes(firstWord) && !UNSAFE_SHELL_METACHARS.test(trimmedInput)) {
       const userEntry: ChatEntry = {
         type: "user",
         content: trimmedInput,

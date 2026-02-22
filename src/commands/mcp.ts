@@ -14,7 +14,8 @@ const MAX_JSON_CONFIG_DEPTH = 20;
 
 
 const CLI_SECRET_ARG_KEY_PATTERN = /(token|api[-_]?key|secret|password|authorization|cookie)/i;
-const CLI_SECRET_ARG_VALUE_PATTERN = /^(?:bearer\s+)?[A-Za-z0-9_\-]{20,}$/i;
+const CLI_SECRET_ARG_VALUE_PATTERN = /^(?:bearer\s+)?[A-Za-z0-9_\-.]{16,}$/i;
+const CLI_HEADER_SECRET_PATTERN = /^(authorization|x-api-key|cookie)\s*[:=]\s*.+$/i;
 
 export function redactCliArg(arg: string): string {
   const [key, ...rest] = arg.split("=");
@@ -26,7 +27,7 @@ export function redactCliArg(arg: string): string {
     return arg;
   }
 
-  if (CLI_SECRET_ARG_VALUE_PATTERN.test(arg)) {
+  if (CLI_SECRET_ARG_VALUE_PATTERN.test(arg) || CLI_HEADER_SECRET_PATTERN.test(arg)) {
     return "[REDACTED]";
   }
 

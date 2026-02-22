@@ -10,7 +10,7 @@ export const ChatHistory = ({ entries }: { entries: ChatEntry[] }) => {
   return (
     <>
       {entries.map((entry, i) => (
-        <MemoizedChatEntry key={i} entry={entry} />
+        <MemoizedChatEntry key={`${entry.type}-${entry.timestamp.getTime()}-${i}`} entry={entry} />
       ))}
     </>
   );

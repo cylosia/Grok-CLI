@@ -47,6 +47,10 @@ export class MCPManager {
   private static readonly MAX_REMOTELY_UNCERTAIN_KEYS = 1_000;
   private static readonly MAX_TIMED_OUT_COOLDOWN_KEYS = 2_000;
   private static readonly SERVER_INIT_CONCURRENCY = 4;
+  private static readonly MAX_TOOL_DESCRIPTION_LENGTH = 1024;
+  private static readonly MAX_SCHEMA_BYTES = 10_000;
+  private static readonly MAX_MCP_RESPONSE_BYTES = 1_000_000;
+  private static readonly MAX_MCP_CONTENT_ITEMS = 100;
   private inFlightToolCalls = new Map<string, Promise<{ content: unknown[] }>>();
   private teardownByServer = new Map<MCPServerName, Promise<void>>();
   private quarantinedServersUntil = new Map<MCPServerName, number>();
@@ -100,15 +104,27 @@ export class MCPManager {
       await client.connect(sdkTransport);
 
       const listed = await client.listTools();
-      const tools: MCPTool[] = listed.tools.map((tool) => ({
-        name: `mcp__${config.name}__${tool.name}`,
-        description: tool.description || "MCP tool",
-        inputSchema: (tool.inputSchema as Record<string, unknown> | undefined) || {
-          type: "object",
-          properties: {},
-        },
-        serverName: config.name,
-      }));
+      const tools: MCPTool[] = listed.tools.map((tool) => {
+        const description = (tool.description || "MCP tool").slice(0, MCPManager.MAX_TOOL_DESCRIPTION_LENGTH);
+        const rawSchema = tool.inputSchema as Record<string, unknown> | undefined;
+        let inputSchema: Record<string, unknown> = { type: "object", properties: {} };
+        if (rawSchema) {
+          try {
+            const serialized = JSON.stringify(rawSchema);
+            if (Buffer.byteLength(serialized, "utf8") <= MCPManager.MAX_SCHEMA_BYTES) {
+              inputSchema = rawSchema;
+            }
+          } catch {
+            // Deeply nested or circular schema; use default
+          }
+        }
+        return {
+          name: `mcp__${config.name}__${tool.name}`,
+          description,
+          inputSchema,
+          serverName: config.name,
+        };
+      });
 
       this.servers.set(serverName, {
         config,
@@ -171,12 +187,10 @@ export class MCPManager {
       return cooldownUntil <= now && !this.servers.has(serverName);
     });
 
-    let index = 0;
+    const queue = [...pendingServers];
     const workers = Array.from({ length: Math.min(MCPManager.SERVER_INIT_CONCURRENCY, pendingServers.length) }, async () => {
-      while (index < pendingServers.length) {
-        const currentIndex = index;
-        index += 1;
-        const server = pendingServers[currentIndex];
+      while (queue.length > 0) {
+        const server = queue.shift();
         if (!server) {
           continue;
         }
@@ -390,9 +404,15 @@ export class MCPManager {
       });
 
       const normalizedCallPromise = callPromise
-        .then((result) => ({
-          content: Array.isArray(result.content) ? result.content : [],
-        }))
+        .then((result) => {
+          const raw = Array.isArray(result.content) ? result.content : [];
+          const content = raw.slice(0, MCPManager.MAX_MCP_CONTENT_ITEMS);
+          const serialized = JSON.stringify(content);
+          if (Buffer.byteLength(serialized, "utf8") > MCPManager.MAX_MCP_RESPONSE_BYTES) {
+            throw new Error("MCP tool response exceeds maximum allowed size");
+          }
+          return { content };
+        })
         .finally(() => {
           this.inFlightToolCalls.delete(callKey);
         });
