@@ -11,6 +11,16 @@ export function tokenizeBashLikeCommand(command: string): string[] {
       continue;
     }
 
+    // Single-quoted strings are verbatim in bash: no backslash escaping
+    if (quote === "'") {
+      if (char === "'") {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
     if (char === "\\") {
       escaping = true;
       continue;
@@ -59,6 +69,12 @@ export function hasUnterminatedQuoteOrEscape(command: string): boolean {
   for (const char of command) {
     if (escaping) {
       escaping = false;
+      continue;
+    }
+
+    // Single-quoted strings are verbatim in bash: no backslash escaping
+    if (quote === "'") {
+      if (char === "'") quote = null;
       continue;
     }
 
