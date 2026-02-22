@@ -13,6 +13,7 @@ yarn.lock
 dist/
 lib/
 build/
+sbom/
 *.tsbuildinfo
 
 # Environment variables
