@@ -54,7 +54,14 @@ export class TextEditorTool {
       const resolvedPath = await this.resolveSafePath(filePath);
 
       if (await fs.pathExists(resolvedPath)) {
-        const stats = await fs.stat(resolvedPath);
+        const stats = await fs.lstat(resolvedPath);
+
+        if (stats.isSymbolicLink()) {
+          return {
+            success: false,
+            error: `Refusing to read through symlink: ${filePath}`,
+          };
+        }
 
         if (stats.isDirectory()) {
           const files = await fs.readdir(resolvedPath);

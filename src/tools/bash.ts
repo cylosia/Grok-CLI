@@ -68,6 +68,14 @@ export class BashTool {
     return this.executeArgs(cmd, args, timeout, command);
   }
 
+  /**
+   * Execute a command with pre-split arguments.  Unlike `execute()`, this
+   * skips the tokenizer and UNSAFE_SHELL_METACHARS check because it spawns
+   * with `shell: false`, so metacharacters are passed as literal strings and
+   * cannot trigger shell interpretation.  All other security controls
+   * (allowlist, blocked-commands, blocked-flags, path validation, confirmation
+   * service, symlink checks) are enforced identically.
+   */
   async executeArgs(
     command: string,
     args: string[] = [],
