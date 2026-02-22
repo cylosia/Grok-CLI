@@ -1,12 +1,16 @@
-function normalizeForCanonicalJson(value: unknown): unknown {
+function normalizeForCanonicalJson(value: unknown, seen = new WeakSet<object>()): unknown {
   if (Array.isArray(value)) {
-    return value.map((entry) => normalizeForCanonicalJson(entry));
+    if (seen.has(value)) return "[CIRCULAR]";
+    seen.add(value);
+    return value.map((entry) => normalizeForCanonicalJson(entry, seen));
   }
 
   if (value && typeof value === "object") {
+    if (seen.has(value)) return "[CIRCULAR]";
+    seen.add(value);
     const entries = Object.entries(value as Record<string, unknown>)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, entry]) => [key, normalizeForCanonicalJson(entry)] as const);
+      .map(([key, entry]) => [key, normalizeForCanonicalJson(entry, seen)] as const);
     return Object.fromEntries(entries);
   }
 

@@ -16,6 +16,18 @@ export interface TransportConfig {
 }
 
 const PROTECTED_ENV_KEYS = new Set(["PATH", "HOME", "NODE_OPTIONS"]);
+// Deny-listed prefixes/names for GROK_MCP_PASSTHROUGH_ENV to prevent
+// accidental forwarding of sensitive credentials to MCP child processes.
+const PASSTHROUGH_DENYLIST_PREFIXES = [
+  "AWS_", "AZURE_", "GCP_", "GOOGLE_", "GCLOUD_",
+  "DATABASE_", "DB_", "REDIS_", "MONGO",
+  "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN",
+  "NPM_TOKEN", "NODE_AUTH_TOKEN",
+  "GROK_API", "OPENAI_API", "ANTHROPIC_API",
+  "SECRET", "PASSWORD", "CREDENTIAL",
+  "PRIVATE_KEY", "SSH_",
+  "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_",
+];
 const MCP_ENV_ALLOWLIST = new Set([
   "MCP_TOOL_TIMEOUT_MS",
   "MCP_CHILD_KILL_GRACE_MS",
@@ -31,12 +43,18 @@ function isAllowedMcpEnvKey(key: string): boolean {
   return MCP_ENV_ALLOWLIST.has(key);
 }
 
+function isDeniedPassthroughKey(key: string): boolean {
+  const upper = key.toUpperCase();
+  return PASSTHROUGH_DENYLIST_PREFIXES.some((prefix) => upper.startsWith(prefix.toUpperCase()));
+}
+
 function readPassthroughEnv(): Record<string, string> {
   const configured = process.env.GROK_MCP_PASSTHROUGH_ENV ?? "";
   const extraKeys = configured
     .split(",")
     .map((entry) => entry.trim())
-    .filter((entry) => /^[A-Z0-9_]{1,64}$/i.test(entry));
+    .filter((entry) => /^[A-Z0-9_]{1,64}$/i.test(entry))
+    .filter((entry) => !isDeniedPassthroughKey(entry));
 
   const allowedKeys = new Set<string>([...DEFAULT_PASSTHROUGH_ENV_KEYS, ...extraKeys]);
   return [...allowedKeys].reduce<Record<string, string>>((acc, key) => {

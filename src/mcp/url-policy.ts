@@ -47,12 +47,19 @@ function isPrivateIpv4(host: string): boolean {
     return false;
   }
 
-  const [a, b] = parts;
-  if (a === 0) return true;
-  if (a === 10 || a === 127) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 169 && b === 254) return true;
+  const [a, b, c] = parts;
+  if (a === 0) return true;                            // 0.0.0.0/8   (current network)
+  if (a === 10 || a === 127) return true;              // 10.0.0.0/8, 127.0.0.0/8
+  if (a === 192 && b === 168) return true;             // 192.168.0.0/16
+  if (a === 172 && b >= 16 && b <= 31) return true;    // 172.16.0.0/12
+  if (a === 169 && b === 254) return true;             // 169.254.0.0/16 (link-local)
+  if (a === 100 && b >= 64 && b <= 127) return true;   // 100.64.0.0/10 (CGNAT / shared)
+  if (a === 192 && b === 0 && c === 0) return true;    // 192.0.0.0/24 (IETF protocol)
+  if (a === 192 && b === 0 && c === 2) return true;    // 192.0.2.0/24 (TEST-NET-1)
+  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15 (benchmarking)
+  if (a === 198 && b === 51 && c === 100) return true; // 198.51.100.0/24 (TEST-NET-2)
+  if (a === 203 && b === 0 && c === 113) return true;  // 203.0.113.0/24 (TEST-NET-3)
+  if (a >= 224) return true;                           // 224.0.0.0+ (multicast + reserved + broadcast)
   return false;
 }
 

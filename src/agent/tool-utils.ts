@@ -1,4 +1,5 @@
 const MAX_TOOL_ARGS_BYTES = 100_000;
+const BLOCKED_PROTO_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export function parseToolArgs(argsRaw: string): Record<string, unknown> {
   if (argsRaw.length > MAX_TOOL_ARGS_BYTES) {
@@ -9,7 +10,15 @@ export function parseToolArgs(argsRaw: string): Record<string, unknown> {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Tool arguments must be a JSON object");
   }
-  return parsed as Record<string, unknown>;
+
+  // Sanitize prototype-pollution keys from LLM-generated JSON
+  const safe = Object.create(null) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!BLOCKED_PROTO_KEYS.has(key)) {
+      safe[key] = value;
+    }
+  }
+  return safe;
 }
 
 export function safeSerializeToolData(data: unknown): string {

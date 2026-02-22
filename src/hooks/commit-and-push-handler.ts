@@ -50,6 +50,15 @@ export async function runCommitAndPushFlow({
       /(?:^|\/)credentials?\b/i,
       /(?:^|\/)secrets?\b/i,
       /(?:^|\/)\.grok\/.*\.md$/i,
+      /\.pem$/i,
+      /\.key$/i,
+      /\.p12$/i,
+      /\.pfx$/i,
+      /(?:^|\/)\.npmrc$/i,
+      /(?:^|\/)\.pypirc$/i,
+      /(?:^|\/)\.netrc$/i,
+      /(?:^|\/)\.docker\/config\.json$/i,
+      /(?:^|\/)kubeconfig$/i,
     ];
     const statusLines = (initialStatusResult.output || "").split("\n").filter(Boolean);
     const filesToStage = statusLines
@@ -155,7 +164,9 @@ export async function runCommitAndPushFlow({
     const cleanCommitMessage = commitMessage
       .trim()
       .replace(/^["']|["']$/g, "")
-      .replace(/[\n\r\0]/g, " ");
+      .replace(/[\n\r\0]/g, " ")
+      .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "")
+      .slice(0, 1000);
 
     const commitResult = await agent.executeBashCommandArgs("git", [
       "commit",

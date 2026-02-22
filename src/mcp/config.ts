@@ -7,6 +7,7 @@ export interface MCPConfig {
 
 const SERVER_NAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const BLOCKED_CONFIG_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const HEADER_INJECTION_PATTERN = /[\r\n\x00]/;
 
 function isSafeServerKey(value: string): boolean {
   return SERVER_NAME_PATTERN.test(value) && !BLOCKED_CONFIG_KEYS.has(value);
@@ -60,7 +61,7 @@ function parseMCPServerConfig(value: unknown): MCPServerConfig | null {
       ...(isStringArray(transport.args) ? { args: transport.args } : {}),
       ...(typeof transport.url === "string" ? { url: transport.url } : {}),
       ...(isRecord(transport.env) ? { env: Object.fromEntries(Object.entries(transport.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")) } : {}),
-      ...(isRecord(transport.headers) ? { headers: Object.fromEntries(Object.entries(transport.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string")) } : {}),
+      ...(isRecord(transport.headers) ? { headers: Object.fromEntries(Object.entries(transport.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string" && !HEADER_INJECTION_PATTERN.test(entry[0]) && !HEADER_INJECTION_PATTERN.test(entry[1]))) } : {}),
     },
     ...(typeof command === "string" ? { command } : {}),
     ...(isStringArray(args) ? { args } : {}),

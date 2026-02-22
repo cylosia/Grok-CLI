@@ -31,12 +31,12 @@ export function CommandSuggestions({
   selectedIndex,
   isVisible,
 }: CommandSuggestionsProps) {
-  if (!isVisible) return null;
-
   const filteredSuggestions = useMemo(
     () => filterCommandSuggestions(suggestions, input),
     [suggestions, input]
   );
+
+  if (!isVisible) return null;
 
   return (
     <Box marginTop={1} flexDirection="column">

@@ -97,6 +97,9 @@ temp/
 *.sln
 *.sw?
 
+# SBOM output
+sbom/
+
 # Coding agents
 .claude/
 .grok/

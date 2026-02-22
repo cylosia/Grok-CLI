@@ -66,7 +66,7 @@ export class GrokAgent extends EventEmitter {
     const manager = getSettingsManager();
     const savedModel = manager.getCurrentModel();
     const modelToUse = model || savedModel || "grok-420";
-    this.maxToolRounds = maxToolRounds || 20;
+    this.maxToolRounds = maxToolRounds ?? 20;
 
     this.grokClient = new GrokClient(apiKey, modelToUse, baseURL);
     this.textEditor = new TextEditorTool();
@@ -303,11 +303,17 @@ export class GrokAgent extends EventEmitter {
             Boolean(args.replace_all)
           );
         case "bash":
-          return this.bash.execute(String(args.command || ""));
+          if (typeof args.command !== "string" || args.command.length === 0) {
+            return { success: false, error: "bash command must be a non-empty string" };
+          }
+          return this.bash.execute(args.command);
         case "search":
           {
+          const searchType: "text" | "files" | "both" =
+            (args.search_type === "text" || args.search_type === "files" || args.search_type === "both")
+              ? args.search_type : "both";
           const searchOptions = {
-            searchType: (args.search_type as "text" | "files" | "both" | undefined) ?? "both",
+            searchType,
             ...(typeof args.include_pattern === "string" ? { includePattern: args.include_pattern } : {}),
             ...(typeof args.exclude_pattern === "string" ? { excludePattern: args.exclude_pattern } : {}),
             ...(typeof args.case_sensitive === "boolean" ? { caseSensitive: args.case_sensitive } : {}),

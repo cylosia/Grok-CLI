@@ -117,10 +117,15 @@ async function addServerAtomically(name: string, config: MCPServerConfig): Promi
   const manager = getMCPManager();
   await manager.addServer(config);
 
+  let persistedConfig = false;
   try {
     await addMCPServer(config);
+    persistedConfig = true;
     await setTrustedMCPServerFingerprint(name, getServerFingerprint(config));
   } catch (error) {
+    if (persistedConfig) {
+      await removeMCPServer(name).catch(() => undefined);
+    }
     await manager.removeServer(name);
     throw error;
   }
@@ -359,18 +364,22 @@ export function createMCPCommand(): Command {
         
         const manager = getMCPManager();
         await manager.addServer(serverConfig);
-        
-        const tools = manager.getTools().filter(t => t.serverName === name);
-        console.log(chalk.green(`✓ Successfully connected to ${name}`));
-        console.log(chalk.blue(`  Available tools: ${tools.length}`));
-        
-        if (tools.length > 0) {
-          console.log('  Tools:');
-          tools.forEach(tool => {
-            const displayName = sanitizeTerminalText(tool.name.replace(`mcp__${name}__`, ''));
-            const safeDescription = sanitizeTerminalText(tool.description);
-            console.log(`    - ${displayName}: ${safeDescription}`);
-          });
+
+        try {
+          const tools = manager.getTools().filter(t => t.serverName === name);
+          console.log(chalk.green(`✓ Successfully connected to ${name}`));
+          console.log(chalk.blue(`  Available tools: ${tools.length}`));
+
+          if (tools.length > 0) {
+            console.log('  Tools:');
+            tools.forEach(tool => {
+              const displayName = sanitizeTerminalText(tool.name.replace(`mcp__${name}__`, ''));
+              const safeDescription = sanitizeTerminalText(tool.description);
+              console.log(`    - ${displayName}: ${safeDescription}`);
+            });
+          }
+        } finally {
+          await manager.removeServer(name).catch(() => undefined);
         }
 
       } catch (error: unknown) {

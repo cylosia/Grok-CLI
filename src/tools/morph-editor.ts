@@ -171,16 +171,19 @@ export class MorphEditorTool {
         timeout: 30_000,
       });
 
-      if (!response.data.choices || !response.data.choices[0] || !response.data.choices[0].message) {
-        throw new Error("Invalid response format from Morph API");
+      const data = response.data as { choices?: Array<{ message?: { content?: unknown } }> } | null;
+      const content = data?.choices?.[0]?.message?.content;
+      if (typeof content !== "string") {
+        throw new Error("Invalid response format from Morph API: missing string content");
       }
 
-      return response.data.choices[0].message.content;
+      return content;
     } catch (error: unknown) {
-      const maybeError = error as { response?: { status?: number } };
-      if (maybeError.response) {
-        const status = maybeError.response.status ?? 'unknown';
-        throw new Error(`Morph API error (${status})`);
+      if (error && typeof error === "object" && "response" in error) {
+        const resp = (error as { response?: { status?: number } }).response;
+        if (resp) {
+          throw new Error(`Morph API error (${resp.status ?? "unknown"})`);
+        }
       }
       throw (error instanceof Error ? error : new Error(String(error)));
     }

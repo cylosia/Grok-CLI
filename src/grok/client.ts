@@ -37,7 +37,7 @@ export interface ChatOptions {
   idempotencyKey?: string;
 }
 
-function toOpenAiMessages(messages: GrokMessage[]): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+function toOpenAiMessages(messages: readonly GrokMessage[]): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   return messages.map((message) => {
     if (message.role === "tool") {
       if (!message.tool_call_id || typeof message.content !== "string") {
@@ -162,7 +162,7 @@ export class GrokClient {
     return response.data;
   }
 
-  async chat(messages: GrokMessage[], options: ChatOptions = {}): Promise<GrokMessage> {
+  async chat(messages: readonly GrokMessage[], options: ChatOptions = {}): Promise<GrokMessage> {
     const convertedTools = toOpenAiTools(options.tools);
     const idempotencyKey = options.idempotencyKey ?? randomUUID();
     const response = await this.withRetry(() =>
@@ -195,7 +195,7 @@ export class GrokClient {
   }
 
   async *chatStream(
-    messages: GrokMessage[],
+    messages: readonly GrokMessage[],
     options: ChatOptions = {}
   ): AsyncGenerator<{ content?: string; toolCalls?: GrokToolCall[]; done?: boolean }> {
     const convertedTools = toOpenAiTools(options.tools);
