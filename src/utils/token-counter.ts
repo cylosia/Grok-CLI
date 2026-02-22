@@ -3,12 +3,14 @@ import { get_encoding, encoding_for_model, Tiktoken } from 'tiktoken';
 export class TokenCounter {
   private encoder: Tiktoken;
 
-  constructor(model: string = 'gpt-4') {
+  constructor(model?: string) {
     try {
-      // Try to get encoding for specific model
-      this.encoder = encoding_for_model(model as Parameters<typeof encoding_for_model>[0]);
+      // Try to get encoding for specific model if recognized by tiktoken
+      this.encoder = model
+        ? encoding_for_model(model as Parameters<typeof encoding_for_model>[0])
+        : get_encoding('cl100k_base');
     } catch {
-      // Fallback to cl100k_base (used by GPT-4 and most modern models)
+      // Fallback to cl100k_base for unrecognized models (e.g. Grok models)
       this.encoder = get_encoding('cl100k_base');
     }
   }

@@ -83,6 +83,11 @@ export class BashTool {
         return { success: false, error: `Command is not allowed: ${command}` };
       }
 
+      // Reject null bytes in arguments which can cause path truncation in C-based tools
+      if (args.some((arg) => arg.includes("\0"))) {
+        return { success: false, error: "Arguments must not contain null bytes" };
+      }
+
       const argsValidation = await this.validateArgs(command, args);
       if (!argsValidation.success) {
         return argsValidation;
@@ -338,24 +343,30 @@ export class BashTool {
       };
     }
 
-    const exists = await fs.pathExists(target);
-    if (!exists) {
+    let canonicalStats: import("fs").Stats;
+    try {
+      canonicalStats = await fs.lstat(canonicalTarget);
+    } catch {
       return { success: false, error: `Cannot change directory: path does not exist: ${newDir}` };
     }
 
-    const stats = await fs.stat(target);
-    if (!stats.isDirectory()) {
+    if (canonicalStats.isSymbolicLink()) {
+      return { success: false, error: `Cannot change directory through symlink: ${newDir}` };
+    }
+    if (!canonicalStats.isDirectory()) {
       return { success: false, error: `Cannot change directory: not a directory: ${newDir}` };
     }
 
-    if (!this.isWithinWorkspace(workspaceRoot, canonicalTarget)) {
+    // Re-verify workspace containment after all checks to narrow TOCTOU window
+    const revalidatedCanonical = await fs.realpath(canonicalTarget).catch(() => canonicalTarget);
+    if (!this.isWithinWorkspace(workspaceRoot, revalidatedCanonical)) {
       return {
         success: false,
         error: `Cannot change directory outside workspace root: ${newDir}`,
       };
     }
 
-    this.currentDirectory = canonicalTarget;
+    this.currentDirectory = revalidatedCanonical;
     return { success: true, output: `Changed directory to: ${this.currentDirectory}` };
   }
 

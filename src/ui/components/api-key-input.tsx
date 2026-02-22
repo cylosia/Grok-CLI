@@ -39,7 +39,10 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
     }
 
     if (inputChar && !key.ctrl && !key.meta) {
-      setInput((prev) => prev + inputChar);
+      setInput((prev) => {
+        if (prev.length >= 256) return prev; // API keys should not exceed 256 chars
+        return prev + inputChar;
+      });
       setError("");
     }
   });
@@ -59,7 +62,7 @@ export default function ApiKeyInput({ onApiKeySet }: ApiKeyInputProps) {
       const agent = new GrokAgent(apiKey);
 
 
-      // Persist non-sensitive settings; API key remains in memory for this session
+      // Store API key in in-memory session state only (SettingsManager strips it from disk)
       try {
         const manager = getSettingsManager();
         await manager.updateUserSetting('apiKey', apiKey);

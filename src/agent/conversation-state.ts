@@ -51,15 +51,26 @@ export class ConversationState {
       // Ensure we don't start with an assistant message containing tool_calls
       // whose tool responses were trimmed away (API requires every tool_call
       // to have a matching tool response immediately after).
-      while (
-        tail.length > 0
-        && tail[0]?.role === "assistant"
-        && tail[0].tool_calls
-        && Array.isArray(tail[0].tool_calls)
-        && tail[0].tool_calls.length > 0
-        && (tail.length < 2 || tail[1]?.role !== "tool")
-      ) {
-        tail = tail.slice(1);
+      while (tail.length > 0 && tail[0]?.role === "assistant") {
+        const firstMsg = tail[0];
+        if (!firstMsg.tool_calls || !Array.isArray(firstMsg.tool_calls) || firstMsg.tool_calls.length === 0) {
+          break;
+        }
+        // Count how many consecutive tool responses follow this assistant message
+        let toolResponseCount = 0;
+        for (let i = 1; i < tail.length && tail[i]?.role === "tool"; i++) {
+          toolResponseCount++;
+        }
+        // If all tool_calls have matching tool responses, the sequence is valid
+        if (toolResponseCount >= firstMsg.tool_calls.length) {
+          break;
+        }
+        // Otherwise, skip this assistant + its partial tool responses
+        tail = tail.slice(1 + toolResponseCount);
+        // Re-trim any orphaned tool messages that may now be at the front
+        while (tail.length > 0 && tail[0]?.role === "tool") {
+          tail = tail.slice(1);
+        }
       }
 
       this.messages = systemMessage !== undefined ? [systemMessage, ...tail] : tail;

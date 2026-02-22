@@ -132,6 +132,7 @@ export class GrokAgent extends EventEmitter {
     this.conversationState.addMessage({ role: "user", content: message });
 
     this.abortController = new AbortController();
+    try {
     const tools = await getAllGrokTools();
     let toolRounds = 0;
 
@@ -198,6 +199,9 @@ export class GrokAgent extends EventEmitter {
     this.conversationState.addChatEntry(failEntry);
     entries.push(failEntry);
     return entries;
+    } finally {
+      this.abortController = null;
+    }
     });
   }
 
@@ -281,6 +285,7 @@ export class GrokAgent extends EventEmitter {
       yield { type: "content", content: "Stopped after reaching maximum tool rounds." };
       yield { type: "done" };
     } finally {
+      this.abortController = null;
       this.concurrencyGate.releaseImmediate();
     }
   }
