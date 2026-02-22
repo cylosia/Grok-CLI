@@ -5,6 +5,8 @@ import axios from "axios";
 import { ToolResult } from "../types/index.js";
 import { ConfirmationService } from "../utils/confirmation-service.js";
 import { resolveSafePathWithinRoot } from "./path-safety.js";
+import { generateUnifiedDiff } from "./diff-utils.js";
+import { logger } from "../utils/logger.js";
 
 export class MorphEditorTool {
   private confirmationService = ConfirmationService.getInstance();
@@ -23,7 +25,7 @@ export class MorphEditorTool {
   constructor(apiKey?: string) {
     this.morphApiKey = apiKey || process.env.MORPH_API_KEY || "";
     if (!this.morphApiKey) {
-      console.warn("MORPH_API_KEY not found. Morph editor functionality will be limited.");
+      logger.warn("morph-api-key-missing", { component: "morph-editor" });
     }
   }
 
@@ -112,7 +114,7 @@ export class MorphEditorTool {
       // Generate diff for display
       const oldLines = initialCode.split("\n");
       const newLines = mergedCode.split("\n");
-      const diff = this.generateDiff(oldLines, newLines, targetFile);
+      const diff = generateUnifiedDiff(oldLines, newLines, targetFile);
 
       return {
         success: true,
@@ -157,6 +159,7 @@ export class MorphEditorTool {
           "Authorization": `Bearer ${this.morphApiKey}`,
           "Content-Type": "application/json",
         },
+        timeout: 30_000,
       });
 
       if (!response.data.choices || !response.data.choices[0] || !response.data.choices[0].message) {
@@ -172,187 +175,6 @@ export class MorphEditorTool {
       }
       throw (error instanceof Error ? error : new Error(String(error)));
     }
-  }
-
-  private generateDiff(
-    oldLines: string[],
-    newLines: string[],
-    filePath: string
-  ): string {
-    const CONTEXT_LINES = 3;
-    
-    const changes: Array<{
-      oldStart: number;
-      oldEnd: number;
-      newStart: number;
-      newEnd: number;
-    }> = [];
-    
-    let i = 0, j = 0;
-    
-    while (i < oldLines.length || j < newLines.length) {
-      while (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
-        i++;
-        j++;
-      }
-      
-      if (i < oldLines.length || j < newLines.length) {
-        const changeStart = { old: i, new: j };
-        
-        let oldEnd = i;
-        let newEnd = j;
-        
-        while (oldEnd < oldLines.length || newEnd < newLines.length) {
-          let matchFound = false;
-          let matchLength = 0;
-          
-          for (let k = 0; k < Math.min(2, oldLines.length - oldEnd, newLines.length - newEnd); k++) {
-            if (oldEnd + k < oldLines.length && 
-                newEnd + k < newLines.length && 
-                oldLines[oldEnd + k] === newLines[newEnd + k]) {
-              matchLength++;
-            } else {
-              break;
-            }
-          }
-          
-          if (matchLength >= 2 || (oldEnd >= oldLines.length && newEnd >= newLines.length)) {
-            matchFound = true;
-          }
-          
-          if (matchFound) {
-            break;
-          }
-          
-          if (oldEnd < oldLines.length) oldEnd++;
-          if (newEnd < newLines.length) newEnd++;
-        }
-        
-        changes.push({
-          oldStart: changeStart.old,
-          oldEnd: oldEnd,
-          newStart: changeStart.new,
-          newEnd: newEnd
-        });
-        
-        i = oldEnd;
-        j = newEnd;
-      }
-    }
-    
-    const hunks: Array<{
-      oldStart: number;
-      oldCount: number;
-      newStart: number;
-      newCount: number;
-      lines: Array<{ type: '+' | '-' | ' '; content: string }>;
-    }> = [];
-    
-    let accumulatedOffset = 0;
-    
-    for (let changeIdx = 0; changeIdx < changes.length; changeIdx++) {
-      const change = changes[changeIdx];
-      
-      let contextStart = Math.max(0, change.oldStart - CONTEXT_LINES);
-      let contextEnd = Math.min(oldLines.length, change.oldEnd + CONTEXT_LINES);
-      
-      if (hunks.length > 0) {
-        const lastHunk = hunks[hunks.length - 1];
-        const lastHunkEnd = lastHunk.oldStart + lastHunk.oldCount;
-        
-        if (lastHunkEnd >= contextStart) {
-          const oldHunkEnd = lastHunk.oldStart + lastHunk.oldCount;
-          const newContextEnd = Math.min(oldLines.length, change.oldEnd + CONTEXT_LINES);
-          
-          for (let idx = oldHunkEnd; idx < change.oldStart; idx++) {
-            lastHunk.lines.push({ type: ' ', content: oldLines[idx] });
-          }
-          
-          for (let idx = change.oldStart; idx < change.oldEnd; idx++) {
-            lastHunk.lines.push({ type: '-', content: oldLines[idx] });
-          }
-          for (let idx = change.newStart; idx < change.newEnd; idx++) {
-            lastHunk.lines.push({ type: '+', content: newLines[idx] });
-          }
-          
-          for (let idx = change.oldEnd; idx < newContextEnd && idx < oldLines.length; idx++) {
-            lastHunk.lines.push({ type: ' ', content: oldLines[idx] });
-          }
-          
-          lastHunk.oldCount = newContextEnd - lastHunk.oldStart;
-          lastHunk.newCount = lastHunk.oldCount + (change.newEnd - change.newStart) - (change.oldEnd - change.oldStart);
-          
-          continue;
-        }
-      }
-      
-      const hunk: typeof hunks[0] = {
-        oldStart: contextStart + 1,
-        oldCount: contextEnd - contextStart,
-        newStart: contextStart + 1 + accumulatedOffset,
-        newCount: contextEnd - contextStart + (change.newEnd - change.newStart) - (change.oldEnd - change.oldStart),
-        lines: []
-      };
-      
-      for (let idx = contextStart; idx < change.oldStart; idx++) {
-        hunk.lines.push({ type: ' ', content: oldLines[idx] });
-      }
-      
-      for (let idx = change.oldStart; idx < change.oldEnd; idx++) {
-        hunk.lines.push({ type: '-', content: oldLines[idx] });
-      }
-      
-      for (let idx = change.newStart; idx < change.newEnd; idx++) {
-        hunk.lines.push({ type: '+', content: newLines[idx] });
-      }
-      
-      for (let idx = change.oldEnd; idx < contextEnd && idx < oldLines.length; idx++) {
-        hunk.lines.push({ type: ' ', content: oldLines[idx] });
-      }
-      
-      hunks.push(hunk);
-      
-      accumulatedOffset += (change.newEnd - change.newStart) - (change.oldEnd - change.oldStart);
-    }
-    
-    let addedLines = 0;
-    let removedLines = 0;
-    
-    for (const hunk of hunks) {
-      for (const line of hunk.lines) {
-        if (line.type === '+') addedLines++;
-        if (line.type === '-') removedLines++;
-      }
-    }
-    
-    let summary = `Updated ${filePath} with Morph Fast Apply`;
-    if (addedLines > 0 && removedLines > 0) {
-      summary += ` - ${addedLines} addition${
-        addedLines !== 1 ? "s" : ""
-      } and ${removedLines} removal${removedLines !== 1 ? "s" : ""}`;
-    } else if (addedLines > 0) {
-      summary += ` - ${addedLines} addition${addedLines !== 1 ? "s" : ""}`;
-    } else if (removedLines > 0) {
-      summary += ` - ${removedLines} removal${
-        removedLines !== 1 ? "s" : ""
-      }`;
-    } else if (changes.length === 0) {
-      return `No changes applied to ${filePath}`;
-    }
-    
-    let diff = summary + "\n";
-    diff += `--- a/${filePath}\n`;
-    diff += `+++ b/${filePath}\n`;
-    
-    for (const hunk of hunks) {
-      diff += `@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@\n`;
-      
-      for (const line of hunk.lines) {
-        diff += `${line.type}${line.content}\n`;
-      }
-    }
-    
-    return diff.trim();
   }
 
   async view(
@@ -440,7 +262,7 @@ export class MorphEditorTool {
     this.morphApiKey = apiKey;
   }
 
-  getApiKey(): string {
-    return this.morphApiKey;
+  hasApiKey(): boolean {
+    return this.morphApiKey.length > 0;
   }
 }

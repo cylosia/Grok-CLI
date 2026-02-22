@@ -40,6 +40,7 @@ export interface TaskResult {
 export class AgentSupervisor extends EventEmitter {
   private workers: Map<Task["type"], GrokAgent> = new Map();
   private repomap: Repomap2;
+  private repomapBuilt = false;
   private activeTasks: Map<TaskId, Task> = new Map();
 
   constructor(private apiKey: string) {
@@ -50,6 +51,10 @@ export class AgentSupervisor extends EventEmitter {
   async executeTask(task: Task): Promise<TaskResult> {
     if (!parseTaskId(String(task.id))) {
       return { success: false, error: `Invalid task id: ${String(task.id)}` };
+    }
+
+    if (this.activeTasks.has(task.id)) {
+      return { success: false, error: `Task ${String(task.id)} is already executing` };
     }
 
     const taskSnapshot: Task = {
@@ -65,6 +70,14 @@ export class AgentSupervisor extends EventEmitter {
       ? taskSnapshot.payload.query
       : JSON.stringify(taskSnapshot.payload);
 
+    if (!this.repomapBuilt) {
+      try {
+        await this.repomap.build(process.cwd());
+        this.repomapBuilt = true;
+      } catch {
+        // Repomap build is best-effort; proceed with empty context
+      }
+    }
     const relevantFiles = await this.repomap.getRelevantFiles(query, 8);
     const executionContext = { ...taskSnapshot.context, relevantFiles };
 
@@ -98,14 +111,15 @@ export class AgentSupervisor extends EventEmitter {
   }
 
   private async getOrCreateWorker(type: Task["type"]): Promise<GrokAgent> {
-    if (!this.workers.has(type)) {
-      const worker = new GrokAgent(this.apiKey, undefined, undefined, undefined, false);
-      this.workers.set(type, worker);
+    // Dispose existing worker to prevent unbounded conversation history growth
+    const existing = this.workers.get(type);
+    if (existing) {
+      existing.dispose();
+      this.workers.delete(type);
     }
-    const worker = this.workers.get(type);
-    if (!worker) {
-      throw new Error(`Failed to create worker for type: ${type}`);
-    }
+
+    const worker = new GrokAgent(this.apiKey, undefined, undefined, undefined, false);
+    this.workers.set(type, worker);
     return worker;
   }
 }

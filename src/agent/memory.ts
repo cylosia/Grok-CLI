@@ -6,15 +6,15 @@ export class AgentMemory {
     this.memory.set(key, data);
   }
 
-  async recall<T>(key: string): Promise<T | undefined> {
-    return this.memory.get(key) as T | undefined;
+  async recall(key: string): Promise<unknown> {
+    return this.memory.get(key);
   }
 
   async updateProfile(key: string, value: unknown): Promise<void> {
     this.userProfile.set(key, value);
   }
 
-  async getProfile<T>(key: string): Promise<T | undefined> {
-    return this.userProfile.get(key) as T | undefined;
+  async getProfile(key: string): Promise<unknown> {
+    return this.userProfile.get(key);
   }
 }

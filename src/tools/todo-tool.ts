@@ -98,6 +98,17 @@ export class TodoTool {
         }
       }
 
+      const ids = new Set<string>();
+      for (const todo of todos) {
+        if (ids.has(todo.id)) {
+          return {
+            success: false,
+            error: `Duplicate todo id: ${todo.id}`
+          };
+        }
+        ids.add(todo.id);
+      }
+
       this.todos = todos;
 
       return {
@@ -125,6 +136,9 @@ export class TodoTool {
         }
 
         const todo = this.todos[todoIndex];
+        if (!todo) {
+          return { success: false, error: `Todo at index ${todoIndex} not found` };
+        }
 
         if (update.status && !TODO_STATUSES.includes(update.status)) {
           return {
