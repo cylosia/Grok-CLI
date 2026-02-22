@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 echo "=== Grok CLI v2.0 Release Packaging ==="
 npm run build
 echo "✅ Build successful"
